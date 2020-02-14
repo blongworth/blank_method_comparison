@@ -31,27 +31,54 @@ library(amstools)
 library(tidyverse)
 library(odbc)
 library(glue)
+library(here)
 ```
 
 # Get data
 
 ```{r}
+# get info from dc13
+getdc13 <- function(tps) {
+  con <- conNOSAMS()
+  sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
+                  tp = tps,
+                  .con = con)
+  query <- dbSendQuery(con, sql)
+  data <- dbFetch(query)
+  dbClearResult(query)
+  data
+}
+
 # get data from snics_results
 data <- getWheel("CFAMS020620")
-
-# get corresponding info from dc13
-con <- conNOSAMS()
-sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
-                  tp = data$tp_num,
-                  .con = con)
-query <- dbSendQuery(con, sql)
-dc13 <- dbFetch(query)
-data <- left_join(data, dc13, by = "tp_num") 
-
-data <- data %>% mutate(total_ug_co2 = total_umols_co2 * 12.015,
+dc13 <- getdc13(data$tp_num)
+cf020620 <- data %>%
+  left_join(dc13, by = "tp_num") %>% 
+  mutate(total_ug_co2 = total_umols_co2 * 12.015,
                 graphite_ug_co2 = graphite_umols_co2 * 12.015,
                 unknown_ug_co2 = graphite_ug_co2 - mass_cont,
                 measmasserr = ifelse(is.na(sig_tot_umols), graphite_ug_co2 * .1, sig_tot_umols))
+
+write_csv(cf020620, here("data/cf020620.csv"))
+
+# also get all qc data, join to dc13 and add fm_corr and error
+load(here("data/qcData.rda"))
+dc13 <- getdc13(std$tp_num)
+sql <- glue_sql("SELECT tp_num, fm_corr, sig_fm_corr FROM snics_results WHERE tp_num IN ({tp*})",
+                tp = std$tp_num,
+                .con = con)
+query <- dbSendQuery(con, sql)
+fm <- dbFetch(query)
+dbClearResult(query)
+std <- std %>%
+  inner_join(fm, by = "tp_num") %>% 
+  inner_join(dc13, by = "tp_num") %>% 
+  mutate(total_ug_co2 = total_umols_co2 * 12.015,
+                graphite_ug_co2 = graphite_umols_co2 * 12.015,
+                unknown_ug_co2 = graphite_ug_co2 - mass_cont,
+                measmasserr = ifelse(is.na(sig_tot_umols), graphite_ug_co2 * .1, sig_tot_umols))
+
+write_csv(cf020620, here("data/std.csv"))
 ```
 
 # Apply MBC to all samples
