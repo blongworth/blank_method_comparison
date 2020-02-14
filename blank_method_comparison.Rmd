@@ -37,9 +37,11 @@ library(here)
 # Get data
 
 ```{r}
+
+
+con <- conNOSAMS()
 # get info from dc13
 getdc13 <- function(tps) {
-  con <- conNOSAMS()
   sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
                   tp = tps,
                   .con = con)
@@ -71,6 +73,7 @@ query <- dbSendQuery(con, sql)
 fm <- dbFetch(query)
 dbClearResult(query)
 std <- std %>%
+  ungroup() %>%
   inner_join(fm, by = "tp_num") %>% 
   inner_join(dc13, by = "tp_num") %>% 
   mutate(total_ug_co2 = total_umols_co2 * 12.015,
@@ -78,32 +81,47 @@ std <- std %>%
                 unknown_ug_co2 = graphite_ug_co2 - mass_cont,
                 measmasserr = ifelse(is.na(sig_tot_umols), graphite_ug_co2 * .1, sig_tot_umols))
 
-write_csv(cf020620, here("data/std.csv"))
+write_csv(std, here("data/std.csv"))
 ```
 
 # Apply MBC to all samples
 
-## Add MBC and check against small samples
+## Add MBC and check against small samples for CFAMS020620
 
 ```{r}
-
 # Do MBC
-data <- data %>%
-        mutate(fmMBcor = pmap(list(.$fm_corr, .$fm_cont, 
+cf020620 <- cf020620  %>%
+        mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
                                    .$graphite_ug_co2, .$mass_cont), 
                               doMBC),
-               fmMBcorerr = pmap(list(.$fm_corr, .$fm_cont, 
+               fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
                                       .$graphite_ug_co2, .$mass_cont, 
                                       .$sig_fm_corr, .$fm_cont_err, 
                                       .$measmasserr, .$mass_cont_err), doMBCerr))
-               
-pmap(list(data$fm_corr, data$fm_blank, data$graphite_ug_co2, data$mass_cont), doMBC)
 
-data %>% 
+cf020620 %>% 
   select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) %>%
   View
-
 ```
 
-## Look at differences
+## Look at effect of MBC on all data
+
+```{r}
+std <- std  %>%
+  filter(gf_co2_qty > 0) %>%
+  mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                             .$graphite_ug_co2, .$mass_cont), doMBC),
+         fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                .$graphite_ug_co2, .$mass_cont, 
+                                .$sig_fm_corr, .$fm_cont_err, 
+                                .$measmasserr, .$mass_cont_err), doMBCerr),
+         fmMBcorSigma = ifelse(!is.na(fmMBcor), sigma(fmMBcor, fm_consensus, fmMBcorerr), NA),
+         fmMBcornormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA))
+
+summary(std$fmMBcor)
+```
+
+```{r}
+
+```
 
