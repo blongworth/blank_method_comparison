@@ -46,9 +46,12 @@ sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
                   .con = con)
 query <- dbSendQuery(con, sql)
 dc13 <- dbFetch(query)
-data <- left_join(data, dc13, by = "tp_num") %>% 
-        mutate(total_ug_co2 = total_umols_co2 * 12.015,
-                graphite_ug_co2 = graphite_umols_co2 * 12.015)
+data <- left_join(data, dc13, by = "tp_num") 
+
+data <- data %>% mutate(total_ug_co2 = total_umols_co2 * 12.015,
+                graphite_ug_co2 = graphite_umols_co2 * 12.015,
+                unknown_ug_co2 = graphite_ug_co2 - mass_cont,
+                measmasserr = ifelse(is.na(sig_tot_umols), graphite_ug_co2 * .1, sig_tot_umols))
 ```
 
 # Apply MBC to all samples
@@ -59,9 +62,20 @@ data <- left_join(data, dc13, by = "tp_num") %>%
 
 # Do MBC
 data <- data %>%
-        mutate(fmMBCcor = map(doMBC, )
+        mutate(fmMBcor = pmap(list(.$fm_corr, .$fm_cont, 
+                                   .$graphite_ug_co2, .$mass_cont), 
+                              doMBC),
+               fmMBcorerr = pmap(list(.$fm_corr, .$fm_cont, 
+                                      .$graphite_ug_co2, .$mass_cont, 
+                                      .$sig_fm_corr, .$fm_cont_err, 
+                                      .$measmasserr, .$mass_cont_err), doMBCerr))
                
-pmap(data$fm_corr, data$fm_blank, data$mass_cont, data$, doMBC())
+pmap(list(data$fm_corr, data$fm_blank, data$graphite_ug_co2, data$mass_cont), doMBC)
+
+data %>% 
+  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) %>%
+  View
+
 ```
 
 ## Look at differences
