@@ -9,12 +9,57 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Investigate the impact of changes to the blank correction methods.
+
+Looking at:
+
+1. Mass balance correction for all samples
+2. Large blank average from wheel instead of long-term average for small samples
+3. Total_mass instead of target_mass
+4. Subtracting mass of blank from total or target mass to get mass of unknown
+5. New vs old parameters for mass balance correction
+
+Use data from snics_results, which has norm_fm as the uncorrected Fm, and all
+parameters necessary for blank correction.
+
+Use blank correction functions from SNICSer in amstools.
+
+## Load libraries
+
 ```{r}
 library(amstools)
 library(tidyverse)
+library(odbc)
+library(glue)
 ```
 
+# Get data
+
 ```{r}
+# get data from snics_results
 data <- getWheel("CFAMS020620")
+
+# get corresponding info from dc13
+con <- conNOSAMS()
+sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
+                  tp = data$tp_num,
+                  .con = con)
+query <- dbSendQuery(con, sql)
+dc13 <- dbFetch(query)
+data <- left_join(data, dc13, by = "tp_num")
 ```
+
+# Apply MBC to all samples
+
+## Add MBC and check against small samples
+
+```{r}
+# Get MBC parameters from dc13
+
+# Do MBC
+data <- data %>%
+        mutate(fmMBCcor = 
+```
+
+## Look at differences
 
