@@ -32,6 +32,7 @@ library(tidyverse)
 library(odbc)
 library(glue)
 library(here)
+library(skimr)
 ```
 
 # Get data
@@ -107,8 +108,14 @@ cf020620 %>%
 ## Look at effect of MBC on all data
 
 ```{r}
+std <- read_csv(here("data/std.csv"))
 std <- std  %>%
-  filter(gf_co2_qty > 0) %>%
+  filter(gf_co2_qty > 0,
+         lab == "OSG",
+         !is.na(graphite_ug_co2),
+         !is.na(fm_cont),
+         fm_consensus > 0.1,
+         abs(sigma) < 10) %>%
   mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
                              .$graphite_ug_co2, .$mass_cont), doMBC),
          fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
@@ -117,11 +124,32 @@ std <- std  %>%
                                 .$measmasserr, .$mass_cont_err), doMBCerr),
          fmMBcorSigma = ifelse(!is.na(fmMBcor), sigma(fmMBcor, fm_consensus, fmMBcorerr), NA),
          fmMBcornormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA))
-
-summary(std$fmMBcor)
 ```
+
+# summarize
 
 ```{r}
 
+solox <- std %>%
+  filter(rec_num == 34148,
+         f_modern > 0.9,
+         process == "OC") %>%
+  select(runtime, system, graphite_ug_co2, f_modern, rep_err, fmMBcor, fmMBcorerr, sigma, fmMBcorSigma)
+skim(solox)
+solox %>%
+  group_by(system) %>%
+  summarize_all(list(mean, sd))
+
+solox %>%
+  filter(graphite_ug_co2 > 500) %>%
+  group_by(system) %>%
+  summarize_all(list(mean, sd))
+  
+ggplot(solox, aes(graphite_ug_co2)) +
+  geom_point(aes(y = f_modern, color = "orange")) +
+  geom_point(aes(y = fmMBcor, color = "green"))
 ```
+
+
+Let's look at whether this works with GS OX-I
 
