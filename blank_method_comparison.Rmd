@@ -35,7 +35,7 @@ library(here)
 library(skimr)
 ```
 
-# Get data
+## Get data
 
 ```{r}
 
@@ -87,6 +87,10 @@ write_csv(std, here("data/std.csv"))
 
 # Apply MBC to all samples
 
+TODO: How does this apply to using wheel LBC vs stored historic LBC values (item 2 above)? The `fm_blank` and `fm_blank_err` should be the values that snicser used for doing the LBC for `fm_corr`, but we can check this by running LBC function in R.
+
+Apply MBC using functions from SNICSer. Using normalized, LBC corrected Fm (`fm_corr`), and MBC parameters from dc13.
+
 ## Add MBC and check against small samples for CFAMS020620
 
 ```{r}
@@ -99,10 +103,25 @@ cf020620 <- cf020620  %>%
                                       .$graphite_ug_co2, .$mass_cont, 
                                       .$sig_fm_corr, .$fm_cont_err, 
                                       .$measmasserr, .$mass_cont_err), doMBCerr))
+names(cf020620)
+compare <- cf020620 %>% 
+  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) 
 
-cf020620 %>% 
-  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) %>%
-  View
+normDiff <- function(x, y) {
+  mean <- (x + y) / 2
+  (x - mean) / mean
+}
+
+cf020620 %>%
+  mutate(snfm = normDiff(fm_mb_corr, fmMBcor),
+         rfm = normDiff(fmMBcor, fm_mb_corr)) %>%
+  select(wheel_pos, sample_name, snfm, rfm) %>%
+  pivot_longer(c(snfm, rfm), names_to = "method", values_to = "Fm") %>%
+  filter(!is.na(Fm)) %>%
+  ggplot(aes(sample_name, Fm, color = method)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
 ```
 
 ## Look at effect of MBC on all data
@@ -126,7 +145,6 @@ std <- std  %>%
          fmMBcornormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA))
 ```
 
-# summarize
 
 ```{r}
 
@@ -145,11 +163,46 @@ solox %>%
   group_by(system) %>%
   summarize_all(list(mean, sd))
   
-ggplot(solox, aes(graphite_ug_co2)) +
-  geom_point(aes(y = f_modern, color = "orange")) +
-  geom_point(aes(y = fmMBcor, color = "green"))
+solox %>%
+  pivot_longer(c(f_modern, fmMBcor), names_to = "method", values_to = "Fm") %>%
+  ggplot(aes(graphite_ug_co2, Fm, color = method)) +
+  geom_hline(yintercept = 1.0398) +
+  geom_point() +
+  facet_grid(. ~ system ) 
 ```
 
 
 Let's look at whether this works with GS OX-I
+
+### NOSAMS2
+
+```{r}
+nos2 <- std %>%
+  filter(rec_num == 38809)
+skim(nos2)
+hist(nos2$f_modern, breaks = 30)
+
+nos2filt <- nos2 %>%
+  filter(f_modern > 0.94) %>%
+  select(runtime, system, graphite_ug_co2, f_modern, rep_err, fmMBcor, fmMBcorerr, sigma, fmMBcorSigma)
+
+nos2filt %>%
+  #filter(graphite_ug_co2 > 500) %>%
+  group_by(system) %>%
+  summarize(fm.m = mean(f_modern),
+            fm.sd = sd(f_modern),
+            fmmb.m = mean(fmMBcor),
+            fmmb.sd = sd(fmMBcor))
+```
+
+
+# Mass source for Mass Balance correction
+
+We currently use graphite_umols_co2 as the source for the mass of the unknown in our mass balance correction. This is the total amount of CO2 converted to graphite, after taking any splits. This can cause problems since it doesn't always represent the ratio of contaminant to sample in the production of CO2. Additionally, it represents the total mass of CO2 graphitized, so the mass of the blank should be subtracted to get the mass of the unknown sample. This also causes problems if the sample is split, which means the mass of contaminant will be divided between the samples graphitzed.
+
+Three solutions:
+
+If the blank added during the production of CO2 is most important, the correct mass is the mass of CO2 quantified on the prep systems. This mass balance correction should be applied to all splits made with this prepped CO2.
+
+If the graphitization blank is important, we can either hold the proportion of CO2 graphitized constant (no splits, same 13C split every time), or use a separate mass balance correction for prep and for graphitization.
 
