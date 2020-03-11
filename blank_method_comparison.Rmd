@@ -91,6 +91,8 @@ TODO: How does this apply to using wheel LBC vs stored historic LBC values (item
 
 Apply MBC using functions from SNICSer. Using normalized, LBC corrected Fm (`fm_corr`), and MBC parameters from dc13.
 
+Using mass from `graphite_umol_co2` as SNICSer currently does.
+
 ## Add MBC and check against small samples for CFAMS020620
 
 ```{r}
@@ -124,7 +126,7 @@ cf020620 %>%
   
 ```
 
-## Look at effect of MBC on all data
+## Calculate MBC and error for all standards
 
 ```{r}
 std <- read_csv(here("data/std.csv"))
@@ -142,9 +144,12 @@ std <- std  %>%
                                 .$sig_fm_corr, .$fm_cont_err, 
                                 .$measmasserr, .$mass_cont_err), doMBCerr),
          fmMBcorSigma = ifelse(!is.na(fmMBcor), sigma(fmMBcor, fm_consensus, fmMBcorerr), NA),
-         fmMBcornormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA))
+         fmMBcornormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA),
+         lbcNormFm = normFm(fm_corr, fm_consensus)) %>%
 ```
 
+
+## Effect of MBC on OX-I solid
 
 ```{r}
 
@@ -153,17 +158,20 @@ solox <- std %>%
          f_modern > 0.9,
          process == "OC") %>%
   select(runtime, system, graphite_ug_co2, f_modern, rep_err, fmMBcor, fmMBcorerr, sigma, fmMBcorSigma)
-skim(solox)
+
 solox %>%
+  select(system, f_modern, rep_err, fmMBcor, fmMBcorerr) %>%
   group_by(system) %>%
   summarize_all(list(mean, sd))
 
 solox %>%
   filter(graphite_ug_co2 > 500) %>%
+  select(system, f_modern, rep_err, fmMBcor, fmMBcorerr) %>%
   group_by(system) %>%
   summarize_all(list(mean, sd))
   
 solox %>%
+  filter(graphite_ug_co2 > 500) %>%
   pivot_longer(c(f_modern, fmMBcor), names_to = "method", values_to = "Fm") %>%
   ggplot(aes(graphite_ug_co2, Fm, color = method)) +
   geom_hline(yintercept = 1.0398) +
@@ -172,15 +180,41 @@ solox %>%
 ```
 
 
-Let's look at whether this works with GS OX-I
+## Effect of MBC on GS OX-I
+
+```{r}
+
+gsox <- std %>%
+  filter(rec_num == 34148,
+         f_modern > 0.9,
+         process == "OC") %>%
+  select(runtime, system, graphite_ug_co2, f_modern, rep_err, fmMBcor, fmMBcorerr, sigma, fmMBcorSigma)
+
+solox %>%
+  select(system, f_modern, rep_err, fmMBcor, fmMBcorerr) %>%
+  group_by(system) %>%
+  summarize_all(list(mean, sd))
+
+solox %>%
+  filter(graphite_ug_co2 > 500) %>%
+  select(system, f_modern, rep_err, fmMBcor, fmMBcorerr) %>%
+  group_by(system) %>%
+  summarize_all(list(mean, sd))
+  
+solox %>%
+  filter(graphite_ug_co2 > 500) %>%
+  pivot_longer(c(f_modern, fmMBcor), names_to = "method", values_to = "Fm") %>%
+  ggplot(aes(graphite_ug_co2, Fm, color = method)) +
+  geom_hline(yintercept = 1.0398) +
+  geom_point() +
+  facet_grid(. ~ system ) 
+```
 
 ### NOSAMS2
 
 ```{r}
 nos2 <- std %>%
   filter(rec_num == 38809)
-skim(nos2)
-hist(nos2$f_modern, breaks = 30)
 
 nos2filt <- nos2 %>%
   filter(f_modern > 0.94) %>%
@@ -195,6 +229,47 @@ nos2filt %>%
             fmmb.sd = sd(fmMBcor))
 ```
 
+### Size dependence on USAMS
+
+```{r}
+sm <- std %>%
+  filter(graphite_ug_co2 < 500)
+
+sm %>%
+  group_by(system) %>%
+  summarize(sigma.m = mean(sigma),
+            sigma.sd = sd(sigma),
+            MBCsig.m = mean(fmMBcorSigma),
+            MBCsig.sd = sd(fmMBcorSigma),
+            normFm.m = mean(normFm),
+            normFm.sd = sd(normFm),
+            MBCnfm.m = mean(fmMBcornormFm),
+            MBCnfm.sd = sd(fmMBcornormFm))
+
+
+sm %>%
+  select(runtime, system, sample_id, graphite_ug_co2, f_modern, rep_err, fmMBcor, fmMBcorerr, sigma, fmMBcorSigma, normFm, fmMBcornormFm) %>%
+  pivot_longer(c(normFm, fmMBcornormFm), names_to = "method", values_to = "NormFm") %>%
+  filter(NormFm > -0.1, NormFm < 0.1) %>%
+  ggplot(aes(graphite_ug_co2, NormFm, color = method)) +
+  geom_point() +
+  facet_grid(. ~ system ) 
+
+```
+
+### current ratio dependence
+
+```{r}
+std %>%
+  mutate(lbcNormFm = normFm(fm_corr, fm_consensus)) %>%
+  filter(le12c > 1E-7,
+         lbcNormFm < 0.1,
+         lbcNormFm > -0.1) %>%
+ggplot(aes(le12c, lbcNormFm, color = system)) +
+  scale_x_log10() +
+  geom_smooth() +
+  geom_point()
+```
 
 # Mass source for Mass Balance correction
 
