@@ -1,0 +1,175 @@
+---
+title: "MBC Blanks"
+author: "Brett Longworth"
+date: "3/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+This document looks at the effect of applying the constant contamination or mass balance blank correction model to all sample sizes, particularly whether there is a different effect between USAMS and CFAMS.
+
+For the same mass-balance correction to work on both machines, two assumptions should be true:
+
+1. Any differences in machine blank must be constant (not mass dependent/constant contaminant addition), and these differences must be entirely corrected for by the large blank correction.
+2. The mass balance blank must be a constant contaminant addition during processes that are the same for both machines (prep, graphitization, pressing).
+
+A particular problem for USAMS is that some aspect of machine performance results in an inverse relationship of ratio amd ion current; small currents produce higher than expected ratios. This problem has existed for the life of the machine. Previous small sample work accounted for this by running small primary standards with small samples and producing a current-dependent normalization curve. The mass balance model in use assumes that there is no ratio/current dependence. There is not currently enough small sample/low current data to describe this relationship with certainty.
+
+The data used here are from 2014 to present. Data after February 2019 for USAMS show significantly better precision and agreement with consensus than the mean of the data presented here.
+
+
+## Load data and apply mass balance correction
+
+```{r}
+library(amstools)
+library(tidyverse)
+library(here)
+library(knitr)
+
+options(digits = 5)
+theme_set(theme_light())
+
+std <- read_csv(here("data/std.csv"))
+std <- std  %>%
+  filter(gf_co2_qty > 0,
+         lab == "OSG",
+         !is.na(graphite_ug_co2),
+         !is.na(fm_cont),
+         fm_consensus > 0.1,
+         abs(sigma) < 10) %>%
+  mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                             .$graphite_ug_co2, .$mass_cont), doMBC),
+         fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                .$graphite_ug_co2, .$mass_cont, 
+                                .$sig_fm_corr, .$fm_cont_err, 
+                                .$measmasserr, .$mass_cont_err), doMBCerr),
+         MBCSigma = ifelse(!is.na(fmMBcor), sigma(fmMBcor, fm_consensus, fmMBcorerr), NA),
+         MBCnormFm = ifelse(!is.na(fmMBcor), normFm(fmMBcor, fm_consensus), NA),
+         LBCnormFm = normFm(fm_corr, fm_consensus))
+```
+
+
+## MBC and large standards
+
+The way the MBC curve/parameters are calculated corrects for some of the blank inherent in sample prep that's not part of bulb-gas standards. Since currents are the same between bulb standards and prepped secondaries, USAMS current dependence is not a factor and the correction improves data on both systems.
+
+### Effect of MBC on OX-I solid
+
+Applying the MBC to large solid OX-I shows an improvement in agreement with consensus on both systems. 
+
+```{r}
+solox <- std %>%
+  filter(rec_num == 34148,
+         fm_corr > 0.9,
+         process == "OC") %>%
+  select(system, mass = graphite_ug_co2, LBC = fm_corr, MBC = fmMBcor) %>%
+  pivot_longer(c(LBC, MBC), names_to = "method", values_to = "Fm") 
+
+solox %>%
+  filter(mass > 500) %>%
+  select(system, method, Fm) %>%
+  group_by(system, method) %>%
+  summarize_all(list(~mean(.), ~sd(.), ~se(.), ~n())) %>%
+  kable(caption = "OX-I solid larger than 500ug. Data are grouped by system and by blank correction method")
+
+solox %>%
+  ggplot(aes(mass, Fm, color = method, shape = method)) +
+  geom_hline(yintercept = 1.0398) +
+  geom_point() +
+  scale_x_log10() +
+  facet_grid(. ~ system ) +
+  labs(title = "Fraction modern vs mass",
+       subtitle = "With and without MBC",
+       ylab = "Fraction Modern",
+       xlab = "Graphite mass (ug, log scale)")
+```
+
+### Effect of MBC on NOSAMS2
+
+As expected, applying the MBC raises the mean Fm on both systems. There appears to be a difference in NOSAMS2 between systems, with USAMS producing data with slightly higher Fm, regardless of MBC. 
+
+```{r}
+nos2 <- std %>%
+  filter(rec_num == 38809,
+         fm_corr > 0.95,
+         process == "HY") %>%
+  select(system, mass = graphite_ug_co2, LBC = fm_corr, MBC = fmMBcor) %>%
+  pivot_longer(c(LBC, MBC), names_to = "method", values_to = "Fm") 
+
+nos2 %>%
+  filter(mass > 500) %>%
+  select(system, method, Fm) %>%
+  group_by(system, method) %>%
+  summarize_all(list(~mean(.), ~sd(.), ~se(.), ~n())) %>%
+  kable(caption = "NOSAMS2 larger than 500ug. Data are grouped by system and by blank correction method")
+
+nos2 %>%
+  ggplot(aes(mass, Fm, color = method, shape = method)) +
+  #geom_hline(yintercept = 1.0398) +
+  geom_point() +
+  scale_x_log10() +
+  facet_grid(. ~ system ) +
+  labs(title = "Fraction modern vs mass",
+       subtitle = "With and without MBC",
+       y = "Fraction Modern",
+       x = "Graphite mass (ug, log scale)")
+```
+
+## Effect of MBC on small standards
+
+Current data on the USAMS ratio/current dependence are sparse since the instrument is typically limited to large samples. Past data have shown that the current dependence becomes significant with targets below 300ug.
+
+### Current/size ratio dependence
+
+This plot shows data for both systems with only the large blank correction applied. The very limited low current data since 2014 shows almost no current dependence on USAMS. This implies that the positive ratio bias from the current dependence roughly balances the negative ratio bias from constant contaminant addition during prep. This should be examined in more detail, looking at both post-acceleration currents and at a suite of test samples to provide more data.
+
+```{r}
+std %>%
+  filter(le12c > 1E-7,
+         LBCnormFm < 0.1,
+         LBCnormFm > -0.1) %>%
+  ggplot(aes(le12c, LBCnormFm, color = system), shape = system) +
+    scale_x_log10() +
+    geom_hline(yintercept = 0) +
+    geom_smooth() +
+    geom_point() +
+  labs(title = "size vs normalized Fm agreement with consensus",
+       subtitle = "No MBC",
+       y = "Normalized Fm",
+       x = "LE 12C current (log scale)")
+```
+
+### Effect of MBC on small(er) samples by system
+
+Data show improvements with application of MBC in this size range as well. Data for USAMS are extremely limited, especially at the smallest sizes.
+
+```{r}
+sm <- std %>%
+  filter(graphite_ug_co2 < 500) %>%
+  select(system, mass = graphite_ug_co2, LBC = LBCnormFm, MBC = MBCnormFm) %>%
+  pivot_longer(c(LBC, MBC), names_to = "method", values_to = "NormFm") %>%
+  filter(NormFm > -0.1, NormFm < 0.1)
+
+sm %>%
+  select(system, method, NormFm) %>%
+  group_by(system, method) %>%
+  summarize_all(list(~mean(.), ~sd(.), ~se(.), ~n())) %>%
+  kable(caption = "Summary of normalized agreement with consensus for secondaries smaller than 500ug. Zero represents perfect agreement. Data are grouped by system and by blank correction method")
+
+
+sm %>%
+  ggplot(aes(mass, NormFm, color = method, shape = method)) +
+  scale_x_log10() +
+  geom_hline(yintercept = 0) +
+  geom_point() +
+  facet_grid(. ~ system ) +
+  labs(title = "size vs normalized Fm agreement with consensus",
+       subtitle = "With and without MBC",
+       y = "Normalized Fm",
+       x = "Graphite mass (ug, log scale)")
+
+```
+
