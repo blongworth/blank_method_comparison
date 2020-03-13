@@ -67,7 +67,10 @@ write_csv(cf020620, here("data/cf020620.csv"))
 # also get all qc data, join to dc13 and add fm_corr and error
 load(here("data/qcData.rda"))
 dc13 <- getdc13(std$tp_num)
-sql <- glue_sql("SELECT tp_num, fm_corr, sig_fm_corr FROM snics_results WHERE tp_num IN ({tp*})",
+sql <- glue_sql("SELECT tp_num, norm_ratio, int_err, 
+                        ext_err, fm_corr, sig_fm_corr 
+                 FROM snics_results 
+                 WHERE tp_num IN ({tp*})",
                 tp = std$tp_num,
                 .con = con)
 query <- dbSendQuery(con, sql)

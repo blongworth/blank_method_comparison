@@ -1,0 +1,49 @@
+---
+title: "DIC Blanks"
+author: "Brett Longworth"
+date: "3/12/2020"
+output: html_document
+---
+
+What is the effect of using WS process blanks for correcting water secondaries? 
+
+1. Extract DIC data by wheel.
+2. Find WS blanks by wheel and average
+3. Apply LBC using WS blanks
+4. Compare with DIC corrected with HY blanks
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(amstools)
+library(tidyverse)
+library(here)
+library(knitr)
+library(odbc)
+
+options(digits = 5)
+theme_set(theme_light())
+
+std <- read_csv(here("data/std.csv"))
+
+wstd <- std %>%
+        filter(process == "WS")
+
+std %>% 
+        filter(rec_num %in% c(83028, 159579)) %>%
+        group_by(wheel) %>%
+        summarize(BlankFm = mean(f_modern))
+
+unique(wstd$name)
+
+names(wstd)
+
+con <- conNOSAMS()
+dbListFields(con, "snics_results")
+
+```
+
