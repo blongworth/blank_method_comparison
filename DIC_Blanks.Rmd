@@ -30,20 +30,19 @@ theme_set(theme_light())
 
 std <- read_csv(here("data/std.csv"))
 
+filter(std, grepl("Caswell", name))
 wstd <- std %>%
-        filter(process == "WS")
+        filter(process == "WS",
+               rec_num %in% c(1082, 17185, 83028, 53804, 2138, 140548, 36168,
+                            55101, 39246, 32490, 32491,
+                            32492, 36947, 148820, 159579)) # need fort caswell, maybe not in std?
 
-std %>% 
-        filter(rec_num %in% c(83028, 159579)) %>%
-        group_by(wheel) %>%
-        summarize(BlankFm = mean(f_modern))
+wstd %>% 
+        group_by(name, system) %>%
+        summarize(Fm = mean(norm_ratio))
 
-unique(wstd$name)
-
-names(wstd)
-
-con <- conNOSAMS()
-dbListFields(con, "snics_results")
-
+ggplot(wstd, aes(norm_ratio)) +
+  geom_histogram() +
+  facet_grid(system ~ rec_num, scales = "free")
 ```
 
