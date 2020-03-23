@@ -30,12 +30,19 @@ options(digits = 5)
 theme_set(theme_light())
 
 con <- conNOSAMS()
+standards <- getStdTable()
+
 wstd <- getNorm(from = as.Date("2019-01-01"), 
                  recs = c(1082, 17185, 83028, 159579)) %>%
   mutate(process = purrr::map_chr(tp_num, amstools::getProcess, con),
          system = substr(wheel, 1, 5)) %>%
-  filter(process == "WS")
+  filter(process == "WS") %>%
+  left_join(select(standards, rec_num, fm_consensus))
 
+write_csv(wstd, here("data/wstd.csv"))
+write_csv(standards, here("data/standards.csv"))
+
+wstd <- wstd2
 wstd %>% 
         group_by(sample_name, rec_num, system) %>%
         summarize(Fm = mean(norm_ratio), N = n()) %>%
@@ -51,8 +58,8 @@ ggplot(wstd, aes(norm_ratio)) +
 Separate by system too.
 
 ```{r}
-wstd <- wstd %>%
-  group_by(wheel) %>%
+wstdsys <- wstd %>%
+  group_by(system) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
              FmBlankErr = sd(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
              FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
@@ -65,7 +72,7 @@ wstd %>%
         summarize(NoBC = mean(norm_ratio), 
                   LBC = mean(FmLBC),
                   fm_corr = mean(fm_corr),
-                 # fm_consensus = mean(fm_consensus),
+                  fm_consensus = mean(fm_consensus),
                   N = n()) %>%
         arrange(rec_num)
 
@@ -74,7 +81,13 @@ wstd %>%
 ## Average blanks by wheel and normalize
 
 ```{r}
-wstd %>%
-  group_by(wheel) %>%
+wstdwheel <- wstd %>%
+  group_by(system) %>%
+      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
+             FmBlankErr = sd(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
+             FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
+             FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr))
+
 ```
 
