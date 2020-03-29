@@ -41,8 +41,13 @@ wstd <- getNorm(from = as.Date("2019-01-01"),
 
 write_csv(wstd, here("data/wstd.csv"))
 write_csv(standards, here("data/standards.csv"))
+```
+```{r}
+wstd <- read_csv(here("data/wstd.csv"))
 
-wstd <- wstd2
+```
+
+```{r}
 wstd %>% 
         group_by(sample_name, rec_num, system) %>%
         summarize(Fm = mean(norm_ratio), N = n()) %>%
@@ -67,14 +72,15 @@ wstdsys <- wstd %>%
                                  pmax(int_err, ext_err), FmBlankErr))
 
 
-wstd %>% 
+wstdsys %>% 
         group_by(sample_name, rec_num, system) %>%
         summarize(NoBC = mean(norm_ratio), 
                   LBC = mean(FmLBC),
                   fm_corr = mean(fm_corr),
                   fm_consensus = mean(fm_consensus),
                   N = n()) %>%
-        arrange(rec_num)
+        arrange(rec_num) %>%
+  kable
 
 ```
 
