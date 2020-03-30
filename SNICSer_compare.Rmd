@@ -1,0 +1,181 @@
+---
+title: "SNICSer method comparison"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+Compare data from wheels analysed with the production version of SNICSer with data from the new blank methods used by the test version 2.90.
+
+First pass: USAMS030520 and CFAMS031020.
+
+Started with clean test tables and read data from results files
+
+1. Load wheels in prod version of snicser
+2. inherit 1st analyst's flags
+3. save analysis to file
+4. load wheel from file in test version
+5. load saved analysis
+6. blank correct
+7. first authorize
+
+Need to check to make sure same norm method is chosen, and that same blanks are chosen for LBC in blank corr.
+
+```{r}
+library(amstools)
+library(odbc)
+library(glue)
+library(tidyverse)
+library(here)
+
+wheels <- c("USAMS030520", "CFAMS031020")
+```
+
+### Get data
+
+#### Pull and save all data for wheels
+
+```{r}
+whdata <- getWheel(wheels) %>%
+  mutate(table = "snics_results")
+whdatat <- getWheel(wheels, test = TRUE) %>%
+  mutate(table = "snics_results_test")
+whdata <- rbind(whdata, whdatat)
+write_csv(whdata, here("data/results.csv"))
+```
+
+```{r}
+
+con <- conNOSAMS()
+# dbListFields(con, "snics_results")
+
+# Function to pull subset of data
+getBCWheel <- function(table, wheels) {
+  query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num, norm_method, ss,
+                       sample_name, sample_type, num_runs, norm_ratio,
+                       fm_corr, sig_fm_corr, lg_blk_fm,
+                       fm_mb_corr, sig_fm_mb_corr 
+                     FROM {`table`}
+                     JOIN target ON {`table`}.tp_num = target.tp_num
+                     WHERE wheel in ({wheels*})",
+                    table = table,
+                    wheels = wheels,
+                    .con = con)
+  dbGetQuery(con, query) %>%
+    mutate(table = table)
+}
+
+data <- map_dfr(c("snics_results", "snics_results_test"), getBCWheel, wheels)
+write_csv(data, here("data/SNICSer_blank_compare.csv"))
+```
+
+### check differences in LBC
+
+Just sanity checking to make sure SNICSer's working and that we're looking at the right data.
+
+A few results have slightly different norm_ratios, but all look like some kind of internal rounding error.
+
+```{r}
+data %>%
+  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
+              names_from = table, values_from = norm_ratio) %>%
+  mutate(fm_diff = snics_results - snics_results_test) %>%
+  filter(abs(fm_diff) > 0)
+```
+
+Looks like some small differences in fm_corr due to diffs in lg_blk_fm. Some are due to using dc13 for lg_blk_fm for small samples, but there's also a 0.000013 difference for OC's that I can't explain.
+
+```{r}
+data %>%
+  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
+              names_from = table, values_from = lg_blk_fm) %>%
+  mutate(fm_diff = snics_results - snics_results_test)  %>%
+  filter(abs(fm_diff) > 0)
+```
+
+This leads to discrepancies in fm_corr of 0.000013 or less for large samples, and differences of up to 0.0028 for small samples.
+
+```{r}
+data %>%
+  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
+              names_from = table, values_from = fm_corr) %>%
+  mutate(fm_diff = snics_results - snics_results_test)  %>%
+  filter(abs(fm_diff) > 0, ss == 1) %>%
+  arrange(-abs(fm_diff))
+```
+
+## MBC differences
+
+### Small samples
+
+Here are the differences between methods for small samples. Keep in mind that some of this is driven by the different lg_blk_fm used for LBC for these samples.
+
+```{r}
+data %>%
+  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
+              names_from = table, values_from = fm_mb_corr) %>%
+  mutate(fm_diff = snics_results - snics_results_test)  %>%
+  filter(abs(fm_diff) > 0, ss == 1) %>%
+  arrange(-abs(fm_diff))
+```
+
+Some of these had -99 for fm_mb_corr, which means parameters are missing. SNICSer should handle missing parameters by setting all MBC fields to DBNull, indicating that it couldn't do the calculation. This will work best with Kathy's reporting functions.
+
+```{r}
+whdata %>%
+  filter(fm_mb_corr < -1) %>%
+  select(wheel, wheel_pos, tp_num, fm_mb_corr, blank_fm, blank_mass)
+```
+
+
+### Large samples
+
+Here are the differences in final fm for large samples not including -99s.
+
+```{r}
+data %>%
+  filter(ss == 0) %>%
+  mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr)) %>%
+  pivot_wider(c(wheel, wheel_pos, tp_num), 
+              names_from = table, values_from = Fmodern) %>%
+  mutate(fm_diff = snics_results - snics_results_test) %>%
+  filter(snics_results_test > -1) %>%
+  arrange(-abs(fm_diff))
+```
+
+### Comparison with MBC blank cor in R
+
+```{r}
+
+```
+
+### Comparison with consensus
+
+```{r}
+# get consensus values
+cons <- getStdTable()
+
+# merge with data by tp. Keep only standards
+consdata <- inner_join(data, select(cons, rec_num, fm_consensus), by = "rec_num") %>%
+  mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr),
+         normFm = normFm(Fmodern, fm_consensus)) %>%
+  filter(Fmodern > -1)
+
+consdata %>%
+  filter(Fmodern > 0.1) %>%
+  group_by(table) %>%
+  summary()
+diffcons <- consdata %>%
+         mutate(cons_diff = Fmodern - fm_consensus) %>%
+
+consdata %>%
+  filter(Fmodern > 0.1) %>%
+ggplot(aes(tp_num, normFm, color = table)) +
+  geom_point()
+```
+
+
