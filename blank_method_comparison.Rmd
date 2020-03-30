@@ -38,22 +38,11 @@ library(skimr)
 ## Get data
 
 ```{r}
-
-
 con <- conNOSAMS()
-# get info from dc13
-getdc13 <- function(tps) {
-  sql <- glue_sql("SELECT * FROM dc13 WHERE tp_num IN ({tp*})",
-                  tp = tps,
-                  .con = con)
-  query <- dbSendQuery(con, sql)
-  data <- dbFetch(query)
-  dbClearResult(query)
-  data
-}
 
 # get data from snics_results
 data <- getWheel("CFAMS020620")
+# get info from dc13
 dc13 <- getdc13(data$tp_num)
 cf020620 <- data %>%
   left_join(dc13, by = "tp_num") %>% 
