@@ -35,7 +35,7 @@ library(here)
 wheels <- c("USAMS030520", "CFAMS031020")
 ```
 
-### Get data
+## Get data
 
 #### Pull and save all data for wheels
 
@@ -47,6 +47,8 @@ whdatat <- getWheel(wheels, test = TRUE) %>%
 whdata <- rbind(whdata, whdatat)
 write_csv(whdata, here("data/results.csv"))
 ```
+
+#### Get subset of data
 
 ```{r}
 
@@ -72,6 +74,8 @@ getBCWheel <- function(table, wheels) {
 data <- map_dfr(c("snics_results", "snics_results_test"), getBCWheel, wheels)
 write_csv(data, here("data/SNICSer_blank_compare.csv"))
 ```
+
+## Find data issues
 
 ### check differences in LBC
 
@@ -108,9 +112,9 @@ data %>%
   arrange(-abs(fm_diff))
 ```
 
-## MBC differences
+### MBC differences
 
-### Small samples
+#### Small samples
 
 Here are the differences between methods for small samples. Keep in mind that some of this is driven by the different lg_blk_fm used for LBC for these samples.
 
@@ -128,11 +132,12 @@ Some of these had -99 for fm_mb_corr, which means parameters are missing. SNICSe
 ```{r}
 whdata %>%
   filter(fm_mb_corr < -1) %>%
-  select(wheel, wheel_pos, tp_num, fm_mb_corr, blank_fm, blank_mass)
+  select(wheel, wheel_pos, tp_num, fm_mb_corr, blank_fm, blank_mass) %>%
+  arrange(wheel, wheel_pos)
 ```
 
 
-### Large samples
+#### Large samples
 
 Here are the differences in final fm for large samples not including -99s.
 
@@ -147,11 +152,62 @@ data %>%
   arrange(-abs(fm_diff))
 ```
 
-### Comparison with MBC blank cor in R
+## Comparison with MBC blank cor in R
 
 ```{r}
+# Function to get data from dc13_test
+getdc13test <- function(tps) {
+con <- conNOSAMS()
+  sql <- glue::glue_sql("SELECT * FROM dc13_test WHERE tp_num IN ({tp*})",
+                  tp = tps,
+                  .con = con)
+  query <- odbc::dbSendQuery(con, sql)
+  data <- odbc::dbFetch(query)
+  odbc::dbClearResult(query)
+  data
+}
 
+# get data from snics_results
+con <- conNOSAMS()
+d<- getWheel("CFAMS031020", test = TRUE)
+# get info from dc13
+dc13 <- getdc13(d$tp_num)
+cf031020 <- d %>%
+  left_join(dc13, by = "tp_num") %>% 
+  mutate(total_ug_co2 = total_umols_co2 * 12.015,
+         graphite_ug_co2 = graphite_umols_co2 * 12.015,
+         unknown_ug_co2 = graphite_ug_co2 - mass_cont,
+         measmasserr = ifelse(is.na(sig_tot_umols), 
+                              graphite_ug_co2 * .1, sig_tot_umols))
+
+# Do MBC
+cf031020  <- cf031020  %>%
+        mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                   .$total_ug_co2, .$mass_cont), 
+                              doMBC),
+               fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                      .$total_ug_co2, .$mass_cont, 
+                                      .$sig_fm_corr, .$fm_cont_err, 
+                                      .$sig_tot_umols, .$mass_cont_err), doMBCerr))
+compare <- cf031020 %>%
+  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) 
+
+normDiff <- function(x, y) {
+  mean <- (x + y) / 2
+  (x - mean) / mean
+}
+
+cf031020 %>%
+  mutate(snfm = normDiff(fm_mb_corr, fmMBcor),
+         rfm = normDiff(fmMBcor, fm_mb_corr)) %>%
+  select(wheel_pos, sample_name, snfm, rfm) %>%
+  pivot_longer(c(snfm, rfm), names_to = "method", values_to = "Fm") %>%
+  filter(!is.na(Fm)) %>%
+  ggplot(aes(sample_name, Fm, color = method)) +
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
+
 
 ### Comparison with consensus
 
