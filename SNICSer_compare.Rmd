@@ -57,12 +57,13 @@ con <- conNOSAMS()
 
 # Function to pull subset of data
 getBCWheel <- function(table, wheels) {
-  query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num, norm_method, ss,
-                       sample_name, sample_type, num_runs, norm_ratio,
-                       fm_corr, sig_fm_corr, lg_blk_fm,
+  query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num,
+                       ss, sample_name, sample_type, total_umols_co2,
+                       norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm,
                        fm_mb_corr, sig_fm_mb_corr 
                      FROM {`table`}
                      JOIN target ON {`table`}.tp_num = target.tp_num
+                     JOIN dc13_test ON {`table`}.tp_num = dc13_test.tp_num
                      WHERE wheel in ({wheels*})",
                     table = table,
                     wheels = wheels,
@@ -127,7 +128,7 @@ data %>%
   arrange(-abs(fm_diff))
 ```
 
-Some of these had -99 for fm_mb_corr, which means parameters are missing. SNICSer should handle missing parameters by setting all MBC fields to DBNull, indicating that it couldn't do the calculation. This will work best with Kathy's reporting functions.
+Some of these had -99 for fm_mb_corr, which means MBC corr was not calculated. This happens for normalizing standards due to how SNICSer works, and samples that are missing MBC paramenters, such as total mass. SNICSer should handle missing parameters by setting all MBC fields to DBNull, indicating that it couldn't do the calculation. This will work best with Kathy's reporting functions.
 
 ```{r}
 whdata %>%
@@ -153,6 +154,9 @@ data %>%
 ```
 
 ## Comparison with MBC blank cor in R
+
+This section compares the new SNICSer calculations to what should be the same calculation done in R. Mark and I have both seen small differences before, likely due to rounding errors. Just looking at CFAMS031020 to start.
+
 
 ```{r}
 # Function to get data from dc13_test
@@ -189,34 +193,56 @@ cf031020  <- cf031020  %>%
                                       .$total_ug_co2, .$mass_cont, 
                                       .$sig_fm_corr, .$fm_cont_err, 
                                       .$sig_tot_umols, .$mass_cont_err), doMBCerr))
-compare <- cf031020 %>%
-  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr) 
+```
 
+```{r}
+cf031020 %>%
+  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr)
+```
+
+```{r}
 normDiff <- function(x, y) {
   mean <- (x + y) / 2
   (x - mean) / mean
 }
 
-cf031020 %>%
+cf031020s <- cf031020 %>%
+  filter(fm_mb_corr > 0.1) %>%
   mutate(snfm = normDiff(fm_mb_corr, fmMBcor),
          rfm = normDiff(fmMBcor, fm_mb_corr)) %>%
-  select(wheel_pos, sample_name, snfm, rfm) %>%
+  select(wheel_pos, sample_name, fm_corr, snfm, rfm)
+```
+
+These samples have the largest differences
+
+```{r}
+cf031020s %>%
   pivot_longer(c(snfm, rfm), names_to = "method", values_to = "Fm") %>%
-  filter(!is.na(Fm)) %>%
+  filter(abs(Fm) > 0.005) %>%
   ggplot(aes(sample_name, Fm, color = method)) +
   geom_point() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
+Fm versus diff in method
+
+```{r}
+ggplot(cf031020s, aes(fm_corr, snfm)) +
+  geom_point()
+```
+
 
 ### Comparison with consensus
 
+Here I'm looking at only standards that we have a known value for in the DB.
+
 ```{r}
 # get consensus values
-cons <- getStdTable()
+cons <- getStdTable() %>%
+  select(rec_num, fm_consensus)
 
 # merge with data by tp. Keep only standards
-consdata <- inner_join(data, select(cons, rec_num, fm_consensus), by = "rec_num") %>%
+consdata <- inner_join(data, cons, by = "rec_num") %>%
   mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr),
          normFm = normFm(Fmodern, fm_consensus)) %>%
   filter(Fmodern > -1)
@@ -225,12 +251,14 @@ consdata %>%
   filter(Fmodern > 0.1) %>%
   group_by(table) %>%
   summary()
-diffcons <- consdata %>%
-         mutate(cons_diff = Fmodern - fm_consensus) %>%
 
 consdata %>%
-  filter(Fmodern > 0.1) %>%
-ggplot(aes(tp_num, normFm, color = table)) +
+  #filter(Fmodern > 0.1) %>%
+ggplot(aes(total_umols_co2, normFm, color = table)) +
+  geom_point()
+consdata %>%
+  #filter(Fmodern > 0.1) %>%
+ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
 ```
 
