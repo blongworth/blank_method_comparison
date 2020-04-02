@@ -14,6 +14,14 @@ What is the effect of using WS process blanks for correcting water secondaries?
 3. Apply LBC using WS blanks
 4. Compare with DIC corrected with HY blanks
 
+TODO: Separate REDICS data 
+look at seawater standards
+remove outliers
+estimate effect of the correction on GO SHIP and USGS data.
+
+Apply correction to REDICS using REDICS blanks and check seawater standard agreement
+
+
 Fort Caswell groundwater blanks have roughly the same value as C1 WS samples, and there are many more of them, so I used them for blank correction.
 
 ```{r setup, include=FALSE}
