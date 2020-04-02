@@ -2,7 +2,9 @@
 title: "DIC Blanks"
 author: "Brett Longworth"
 date: "3/12/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 What is the effect of using WS process blanks for correcting water secondaries? 
@@ -12,11 +14,15 @@ What is the effect of using WS process blanks for correcting water secondaries?
 3. Apply LBC using WS blanks
 4. Compare with DIC corrected with HY blanks
 
+Fort Caswell groundwater blanks have roughly the same value as C1 WS samples, and there are many more of them, so I used them for blank correction.
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 ```
 
-## R Markdown
+## WS standards overview
+
+A summary of the samples used here. Data for some sample types have a lot of spread. I haven't run the analysis after removing outlers yet.
 
 ```{r}
 library(amstools)
@@ -29,23 +35,34 @@ library(blanks)
 options(digits = 5)
 theme_set(theme_light())
 
-wstd <- read_csv(here("data/wstd.csv"))
+wstd <- read_csv(here("data/wstd.csv")) %>%
+  mutate(Name = ordered(recode(as.character(rec_num), 
+                                 "1081" = "C1", 
+                                 "83028" = "C1", 
+                                 "1082" = "C2", 
+                                 "17185" = "TIRI-I",
+                                 "159579" = "GW Blank")),
+         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus))
 ```
 
 ```{r}
 wstd %>% 
-        group_by(sample_name, rec_num, system) %>%
-        summarize(Fm = mean(norm_ratio), N = n()) %>%
-        arrange(rec_num)
+        group_by(Name) %>%
+        summarize(Fm = mean(fm_corr),
+                  "Fm SD" = sd(fm_corr),
+                  N = n()) %>%
+        arrange(Name) %>%
+  kable
 
-ggplot(wstd, aes(norm_ratio)) +
-  geom_histogram() +
-  facet_grid(system ~ rec_num, scales = "free")
+ggplot(wstd, aes(norm_ratio, fill = system)) +
+  geom_histogram(alpha = .8) +
+  scale_color_viridis_d() +
+  facet_grid(cols = vars(Name), scales = "free")
 ```
 
-## First try LBC by simple overall WS blank means. 
+## Correction using mean system water blank
 
-Separate by system too.
+Because not all wheels with DIC secondaries had two WS blanks, we can use a system average blank value to apply the large blank correction by system. The blank corrected errors will be a little low, because I haven't applied SNICSer's "error floor" method yet.
 
 ```{r}
 wstdsys <- wstd %>%
@@ -58,27 +75,67 @@ wstdsys <- wstd %>%
 
 
 wstdsys %>% 
-        group_by(sample_name, rec_num, system) %>%
-        summarize(NoBC = mean(norm_ratio), 
-                  LBC = mean(FmLBC),
-                  fm_corr = mean(fm_corr),
+        group_by(Name, rec_num, system) %>%
+        summarize("No Blank corr" = mean(norm_ratio), 
+                  "HY LBC" = mean(fm_corr),
+                  "WS LBC" = mean(FmLBC),
                   fm_consensus = mean(fm_consensus),
                   N = n()) %>%
         arrange(rec_num) %>%
-  kable
+  kable()
 
 ```
 
-## Average blanks by wheel and normalize
+```{r}
+wstdsys %>%
+  filter(!is.na(FmLBC)) %>%
+  pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(Method, Fm)) +
+  geom_hline(aes(yintercept = fm_consensus) ) +
+  #geom_hline(yintercept = 0.2524) +
+  #geom_hline(yintercept = 0.4114) +
+  geom_boxplot() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
+```
+
+## Correction using per-wheel water blank
+
+For wheels with two or more water blanks, we can calculate and apply a large blank correction based on the per-wheel blank.
 
 ```{r}
 wstdwheel <- wstd %>%
-  group_by(system) %>%
+  group_by(wheel) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
              FmBlankErr = sd(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
-             FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
-             FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
-                                 pmax(int_err, ext_err), FmBlankErr))
+             Nblank = length(norm_ratio[which(rec_num == 159579)]),
+             FmLBC = ifelse(Nblank > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA),
+             FmLBCerr = ifelse(Nblank > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr), NA))
 
+wstdwheel %>% 
+      filter(!is.na(FmLBC)) %>%
+  group_by(Name, rec_num, system) %>%
+        summarize("No Blank" = mean(norm_ratio), 
+                  "HY LBC" = mean(fm_corr),
+                  "HY LBC err" = mean(sig_fm_corr),
+                  "WS LBC" = mean(FmLBC),
+                  "WS LBC err" = mean(FmLBCerr),
+                  fm_consensus = mean(fm_consensus),
+                  N = n()) %>%
+        arrange(rec_num) %>%
+  kable()
+
+```
+
+```{r}
+wstdwheel %>%
+  filter(!is.na(FmLBC)) %>%
+  pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(Method, Fm)) +
+  geom_hline(aes(yintercept = fm_consensus) ) +
+  #geom_hline(yintercept = 0.2524) +
+  #geom_hline(yintercept = 0.4114) +
+  geom_boxplot() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
 ```
 
