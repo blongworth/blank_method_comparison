@@ -173,7 +173,8 @@ con <- conNOSAMS()
 
 # get data from snics_results
 con <- conNOSAMS()
-d<- getWheel("CFAMS031020", test = TRUE)
+d<- getWheel("CFAMS031020", test = TRUE) %>%
+  filter(fm_mb_corr > 0.05)
 # get info from dc13
 dc13 <- getdc13(d$tp_num)
 cf031020 <- d %>%
@@ -210,7 +211,7 @@ cf031020s <- cf031020 %>%
   filter(fm_mb_corr > 0.1) %>%
   mutate(snfm = normDiff(fm_mb_corr, fmMBcor),
          rfm = normDiff(fmMBcor, fm_mb_corr)) %>%
-  select(wheel_pos, sample_name, fm_corr, snfm, rfm)
+  select(wheel_pos, sample_name, total_umols_co2, fm_corr, snfm, rfm)
 ```
 
 These samples have the largest differences
@@ -227,10 +228,20 @@ cf031020s %>%
 Fm versus diff in method
 
 ```{r}
-ggplot(cf031020s, aes(fm_corr, snfm)) +
+cf031020s %>%
+  filter(total_umols_co2 > 15) %>%
+ggplot(aes(fm_corr, snfm)) +
   geom_point()
 ```
 
+Size versus diff in method
+
+```{r}
+ggplot(cf031020s, aes(total_umols_co2, snfm)) +
+  geom_point() +
+  #ylim(-0.001, 0.001) +
+  xlim(0, 50)
+```
 
 ### Comparison with consensus
 
@@ -251,13 +262,21 @@ consdata %>%
   filter(Fmodern > 0.1) %>%
   group_by(table) %>%
   summary()
+```
 
+Fm disagreement with consensus blows up at very low Fm and with some samples < 250 umol. 
+
+```{r}
 consdata %>%
-  #filter(Fmodern > 0.1) %>%
+  filter(Fmodern > 0.1, total_umols_co2 < 500) %>%
 ggplot(aes(total_umols_co2, normFm, color = table)) +
   geom_point()
 consdata %>%
   #filter(Fmodern > 0.1) %>%
+ggplot(aes(fm_consensus, normFm, color = table)) +
+  geom_point()
+consdata %>%
+  filter(Fmodern > 0.1) %>%
 ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
 ```
