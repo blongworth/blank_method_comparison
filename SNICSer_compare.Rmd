@@ -32,7 +32,7 @@ library(glue)
 library(tidyverse)
 library(here)
 
-wheels <- c("USAMS030520", "CFAMS031020")
+wheels <- c("USAMS030520", "CFAMS020120", "CFAMS020620", "CFAMS021120", "CFAMS021320", "CFAMS021820", "CFAMS031020")
 ```
 
 ## Get data
@@ -58,7 +58,7 @@ con <- conNOSAMS()
 # Function to pull subset of data
 getBCWheel <- function(table, wheels) {
   query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num,
-                       ss, sample_name, sample_type, total_umols_co2,
+                       ss, sample_name, norm_method, sample_type, total_umols_co2,
                        norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm,
                        fm_mb_corr, sig_fm_mb_corr 
                      FROM {`table`}
@@ -77,6 +77,17 @@ write_csv(data, here("data/SNICSer_blank_compare.csv"))
 ```
 
 ## Find data issues
+
+### Compare normalization method
+
+```{r}
+data %>%
+  group_by(wheel, table) %>%
+  summarize(norm_method = norm_method[1]) %>%
+  pivot_wider(id_cols = c("wheel"), names_from = "table", values_from = "norm_method") %>%
+  filter(snics_results != snics_results_test)
+```
+
 
 ### check differences in LBC
 
