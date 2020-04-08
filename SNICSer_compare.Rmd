@@ -25,6 +25,8 @@ Started with clean test tables and read data from results files
 
 Need to check to make sure same norm method is chosen, and that same blanks are chosen for LBC in blank corr.
 
+Not using CFAMS20120, which was Ulrich's test wheel.
+
 ```{r}
 library(amstools)
 library(odbc)
@@ -32,7 +34,7 @@ library(glue)
 library(tidyverse)
 library(here)
 
-wheels <- c("USAMS030520", "CFAMS020120", "CFAMS020620", "CFAMS021120", "CFAMS021320", "CFAMS021820", "CFAMS031020")
+wheels <- c("USAMS030520", "CFAMS020620", "CFAMS021120", "CFAMS021320", "CFAMS021820", "CFAMS031020")
 ```
 
 ## Get data
@@ -53,13 +55,13 @@ write_csv(whdata, here("data/results.csv"))
 ```{r}
 
 con <- conNOSAMS()
-# dbListFields(con, "snics_results")
+#dbListFields(con, "snics_results")
 
 # Function to pull subset of data
 getBCWheel <- function(table, wheels) {
   query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num,
                        ss, sample_name, norm_method, sample_type, total_umols_co2,
-                       norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm,
+                       norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm, sig_lg_blk_fm,
                        fm_mb_corr, sig_fm_mb_corr 
                      FROM {`table`}
                      JOIN target ON {`table`}.tp_num = target.tp_num
@@ -69,7 +71,8 @@ getBCWheel <- function(table, wheels) {
                     wheels = wheels,
                     .con = con)
   dbGetQuery(con, query) %>%
-    mutate(table = table)
+    mutate(table = table,
+           process = map_chr(tp_num, getProcess, con))
 }
 
 data <- map_dfr(c("snics_results", "snics_results_test"), getBCWheel, wheels)
@@ -78,29 +81,46 @@ write_csv(data, here("data/SNICSer_blank_compare.csv"))
 
 ## Find data issues
 
+Just sanity checking to make sure SNICSer's working and that we're looking at the right data.
+
 ### Compare normalization method
+
+No rows mean all wheels use the same norm method for both test and production.
 
 ```{r}
 data %>%
-  group_by(wheel, table) %>%
-  summarize(norm_method = norm_method[1]) %>%
-  pivot_wider(id_cols = c("wheel"), names_from = "table", values_from = "norm_method") %>%
+  pivot_wider(id_cols = c("wheel", "wheel_pos"), names_from = "table", values_from = "norm_method") %>%
   filter(snics_results != snics_results_test)
 ```
 
 
 ### check differences in LBC
 
-Just sanity checking to make sure SNICSer's working and that we're looking at the right data.
+Look at LBC values by wheel. I haven't been able to figure out what causes some of the differences. It's possible the wheel values were edited manually. 
+I ended up going into these wheels in snicser and fixing the values that differed by more than 0.000001.
 
-A few results have slightly different norm_ratios, but all look like some kind of internal rounding error.
+```{r}
+data %>%
+  pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
+  arrange(wheel, process, wheel_pos) %>%
+  filter(!near(snics_results, snics_results_test, tol = 0.000001),
+         ss == 0)
+```
+
+```{r}
+data %>%
+  pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
+  filter(!near(snics_results, snics_results_test, tol = 0.000001),
+         ss == 0)
+```
+A few results have slightly different norm_ratios, but all look like some kind of internal rounding error. No results different at > 1E-15.
 
 ```{r}
 data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = norm_ratio) %>%
   mutate(fm_diff = snics_results - snics_results_test) %>%
-  filter(abs(fm_diff) > 0)
+  filter(!near(snics_results, snics_results_test, tol = 1E-15))
 ```
 
 Looks like some small differences in fm_corr due to diffs in lg_blk_fm. Some are due to using dc13 for lg_blk_fm for small samples, but there's also a 0.000013 difference for OC's that I can't explain.
@@ -110,17 +130,18 @@ data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = lg_blk_fm) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(abs(fm_diff) > 0)
+  filter(!near(snics_results, snics_results_test, tol = 1E-05))
 ```
 
-This leads to discrepancies in fm_corr of 0.000013 or less for large samples, and differences of up to 0.0028 for small samples.
+This leads to discrepancies in fm_corr of up to 0.0028 for small samples.
 
 ```{r}
 data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = fm_corr) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(abs(fm_diff) > 0, ss == 1) %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-05),
+         ss == 1) %>%
   arrange(-abs(fm_diff))
 ```
 
