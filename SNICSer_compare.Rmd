@@ -58,25 +58,30 @@ data %>%
 ```
 
 
-### check differences in LBC
+#### LBC Parameters
 
-Look at LBC values by wheel. I haven't been able to figure out what causes some of the differences. It's possible the wheel values were edited manually. 
-I ended up going into these wheels in snicser and fixing the values that differed by more than 0.000001.
+Look at LBC values by wheel. I haven't been able to figure out what causes some
+of the differences. It's possible the wheel values were edited manually. I ended
+up going into these wheels in snicser and fixing the values that differed by
+more than 0.000001.
 
 ```{r}
+# Check that LB values are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
   arrange(wheel, process, wheel_pos) %>%
   filter(!near(snics_results, snics_results_test, tol = 0.000001),
          ss == 0)
-```
 
-```{r}
+# Check that LB errors are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
   filter(!near(snics_results, snics_results_test, tol = 0.000001),
          ss == 0)
 ```
+
+#### Norm ratio
+
 A few results have slightly different norm_ratios, but all look like some kind of internal rounding error. No results different at > 1E-15.
 
 ```{r}
@@ -87,14 +92,17 @@ data %>%
   filter(!near(snics_results, snics_results_test, tol = 1E-15))
 ```
 
-Looks like some small differences in fm_corr due to diffs in lg_blk_fm. Some are due to using dc13 for lg_blk_fm for small samples, but there's also a 0.000013 difference for OC's that I can't explain.
+### Large blank differences
+
+All differences > 1E-5 in fm_corr are due to changing from long term lg_blk_fm to values from the wheel. There's a small difference in in a few other wheels, but nothing greater than 1E-6.
 
 ```{r}
 data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = lg_blk_fm) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-05))
+  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
+  arrange(-abs(fm_diff))
 ```
 
 This leads to discrepancies in fm_corr of up to 0.0028 for small samples.
@@ -104,8 +112,7 @@ data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = fm_corr) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-05),
-         ss == 1) %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
   arrange(-abs(fm_diff))
 ```
 
@@ -120,16 +127,18 @@ data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = fm_mb_corr) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(abs(fm_diff) > 0, ss == 1) %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-06), ss == 1) %>%
   arrange(-abs(fm_diff))
 ```
 
-Some of these had -99 for fm_mb_corr, which means MBC corr was not calculated. This happens for normalizing standards due to how SNICSer works, and samples that are missing MBC paramenters, such as total mass. SNICSer should handle missing parameters by setting all MBC fields to DBNull, indicating that it couldn't do the calculation. This will work best with Kathy's reporting functions.
+SNICSer now handles missing MBC parameters by setting the MBC fields in snics_results to Null. This should make it easy to turn MBC on and off with the parameters in dc13.
 
 ```{r}
-whdata %>%
-  filter(fm_mb_corr < -1) %>%
-  select(wheel, wheel_pos, tp_num, fm_mb_corr, blank_fm, blank_mass) %>%
+data %>%
+  pivot_wider(c(wheel, wheel_pos), 
+              names_from = table, values_from = fm_mb_corr) %>%
+  mutate(both_NA = is.na(snics_results) & is.na(snics_results_test)) %>%
+  filter(is.na(snics_results_test)) %>%
   arrange(wheel, wheel_pos)
 ```
 
