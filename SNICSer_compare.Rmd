@@ -33,50 +33,14 @@ library(odbc)
 library(glue)
 library(tidyverse)
 library(here)
-
-wheels <- c("USAMS030520", "CFAMS020620", "CFAMS021120", "CFAMS021320", "CFAMS021820", "CFAMS031020")
 ```
 
 ## Get data
 
-#### Pull and save all data for wheels
 
 ```{r}
-whdata <- getWheel(wheels) %>%
-  mutate(table = "snics_results")
-whdatat <- getWheel(wheels, test = TRUE) %>%
-  mutate(table = "snics_results_test")
-whdata <- rbind(whdata, whdatat)
-write_csv(whdata, here("data/results.csv"))
-```
-
-#### Get subset of data
-
-```{r}
-
-con <- conNOSAMS()
-#dbListFields(con, "snics_results")
-
-# Function to pull subset of data
-getBCWheel <- function(table, wheels) {
-  query <- glue_sql("SELECT wheel, wheel_pos, target.tp_num, rec_num,
-                       ss, sample_name, norm_method, sample_type, total_umols_co2,
-                       norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm, sig_lg_blk_fm,
-                       fm_mb_corr, sig_fm_mb_corr 
-                     FROM {`table`}
-                     JOIN target ON {`table`}.tp_num = target.tp_num
-                     JOIN dc13_test ON {`table`}.tp_num = dc13_test.tp_num
-                     WHERE wheel in ({wheels*})",
-                    table = table,
-                    wheels = wheels,
-                    .con = con)
-  dbGetQuery(con, query) %>%
-    mutate(table = table,
-           process = map_chr(tp_num, getProcess, con))
-}
-
-data <- map_dfr(c("snics_results", "snics_results_test"), getBCWheel, wheels)
-write_csv(data, here("data/SNICSer_blank_compare.csv"))
+whdata <- read_csv(here("data/results.csv"))
+data <- read_csv(here("data/SNICSer_blank_compare.csv"))
 ```
 
 ## Find data issues
@@ -205,7 +169,8 @@ con <- conNOSAMS()
 
 # get data from snics_results
 con <- conNOSAMS()
-d<- getWheel("CFAMS031020", test = TRUE) %>%
+#d <- getWheel("CFAMS031020", test = TRUE) %>%
+d <- getWheel(wheels, test = TRUE) %>%
   filter(fm_mb_corr > 0.05)
 # get info from dc13
 dc13 <- getdc13(d$tp_num)
