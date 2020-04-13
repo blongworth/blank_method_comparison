@@ -3,8 +3,9 @@ title: "DIC Blanks"
 author: "Brett Longworth"
 date: "3/12/2020"
 output:
-  pdf_document: default
   html_document: default
+  word_document: default
+  pdf_document: default
 ---
 
 What is the effect of using WS process blanks for correcting water secondaries? 
@@ -14,10 +15,18 @@ What is the effect of using WS process blanks for correcting water secondaries?
 3. Apply LBC using WS blanks
 4. Compare with DIC corrected with HY blanks
 
-TODO: Separate REDICS data 
+TODO: 
+Separate REDICS data 
+Need process or reactor number
+
 look at seawater standards
+Get data for ARM, etc...
+
 remove outliers
+Use 1.5x interquartile
+
 estimate effect of the correction on GO SHIP and USGS data.
+Maybe just plot average correction amount vs Fm
 
 Apply correction to REDICS using REDICS blanks and check seawater standard agreement
 
@@ -43,19 +52,31 @@ library(blanks)
 options(digits = 5)
 theme_set(theme_light())
 
-wstd <- read_csv(here("data/wstd.csv")) %>%
+# Function to calculate SNICSer-style LBC error floors
+Blankerr <- function(blankfm) {
+  mfm <- mean(blankfm)
+  sd <- sd(blankfm)
+  ifelse(sd > mfm / 2, sd, mfm / 2)
+}
+
+data <- read_csv(here("data/wstd.csv"))
+
+wstd <- data %>%
+  filter(ws_method_num == 410305) %>% # only use WSL data
   mutate(Name = ordered(recode(as.character(rec_num), 
                                  "1081" = "C1", 
                                  "83028" = "C1", 
                                  "1082" = "C2", 
                                  "17185" = "TIRI-I",
                                  "159579" = "GW Blank")),
-         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus))
+         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) 
 ```
+
+Data summary
 
 ```{r}
 wstd %>% 
-        group_by(Name) %>%
+        group_by(Name, ws_method_num, system) %>%
         summarize(Fm = mean(fm_corr),
                   "Fm SD" = sd(fm_corr),
                   N = n()) %>%
@@ -76,7 +97,7 @@ Because not all wheels with DIC secondaries had two WS blanks, we can use a syst
 wstdsys <- wstd %>%
   group_by(system) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
-             FmBlankErr = sd(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
              FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
              FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
                                  pmax(int_err, ext_err), FmBlankErr))
@@ -84,9 +105,52 @@ wstdsys <- wstd %>%
 
 wstdsys %>% 
         group_by(Name, rec_num, system) %>%
-        summarize("No Blank corr" = mean(norm_ratio), 
+        summarize("No Blank" = mean(norm_ratio), 
                   "HY LBC" = mean(fm_corr),
+                  "HY LBC err" = mean(sig_fm_corr),
                   "WS LBC" = mean(FmLBC),
+                  "WS LBC err" = mean(FmLBCerr),
+                  fm_consensus = mean(fm_consensus),
+                  N = n()) %>%
+        arrange(rec_num) %>%
+  kable()
+
+```
+
+```{r}
+wstdsys %>%
+  filter(!is.na(FmLBC)) %>%
+  pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(Method, Fm)) +
+  geom_hline(aes(yintercept = fm_consensus) ) +
+  #geom_hline(yintercept = 0.2524) +
+  #geom_hline(yintercept = 0.4114) +
+  geom_boxplot() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
+```
+
+The same with outliers removed
+
+```{r}
+wstdsys <- wstd %>%
+  group_by(Name, system) %>%
+  filter(!is.na(amstools::removeOutliers(norm_ratio))) %>%
+  ungroup() %>%
+  group_by(system) %>%
+      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]), 
+             FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
+             FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr))
+
+
+wstdsys %>% 
+        group_by(Name, rec_num, system) %>%
+        summarize("No Blank" = mean(norm_ratio), 
+                  "HY LBC" = mean(fm_corr),
+                  "HY LBC err" = mean(sig_fm_corr),
+                  "WS LBC" = mean(FmLBC),
+                  "WS LBC err" = mean(FmLBCerr),
                   fm_consensus = mean(fm_consensus),
                   N = n()) %>%
         arrange(rec_num) %>%
@@ -114,7 +178,7 @@ For wheels with two or more water blanks, we can calculate and apply a large bla
 wstdwheel <- wstd %>%
   group_by(wheel) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
-             FmBlankErr = sd(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]), 
              Nblank = length(norm_ratio[which(rec_num == 159579)]),
              FmLBC = ifelse(Nblank > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA),
              FmLBCerr = ifelse(Nblank > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
@@ -147,3 +211,45 @@ wstdwheel %>%
   facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
 ```
 
+
+The same without outliers
+
+```{r}
+wstdwheel <- wstd %>%
+  group_by(Name, system) %>%
+  filter(!is.na(amstools::removeOutliers(norm_ratio))) %>%
+  ungroup() %>%
+  group_by(wheel) %>%
+      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]), 
+             Nblank = length(norm_ratio[which(rec_num == 159579)]),
+             FmLBC = ifelse(Nblank > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA),
+             FmLBCerr = ifelse(Nblank > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr), NA))
+
+wstdwheel %>% 
+      filter(!is.na(FmLBC)) %>%
+  group_by(Name, rec_num, system) %>%
+        summarize("No Blank" = mean(norm_ratio), 
+                  "HY LBC" = mean(fm_corr),
+                  "HY LBC err" = mean(sig_fm_corr),
+                  "WS LBC" = mean(FmLBC),
+                  "WS LBC err" = mean(FmLBCerr),
+                  fm_consensus = mean(fm_consensus),
+                  N = n()) %>%
+        arrange(rec_num) %>%
+  kable()
+
+```
+
+```{r}
+wstdwheel %>%
+  filter(!is.na(FmLBC)) %>%
+  pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(Method, Fm)) +
+  geom_hline(aes(yintercept = fm_consensus) ) +
+  #geom_hline(yintercept = 0.2524) +
+  #geom_hline(yintercept = 0.4114) +
+  geom_boxplot() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
+```
