@@ -178,12 +178,26 @@ wstd%>%
 
 # Modeling the correction for varying sample Fm
 
-Given the large blank correction formula and knowing the fraction modern of the water blank samples, we can model the effect of the correction of samples by their Fm. 
+Given the large blank correction formula and knowing the fraction modern of the water blank samples, we can model the effect of the correction of samples by their Fm. The simple model below assumes a WS large blank of 4 permil and a HY blank of 1 permil. The plot shows the difference in Fm (measured - Corrected) for these two corrections. The difference between our current HY LBC and the proposed WS LBC is the difference between the orange and green lines. The difference is roughly 3 permil for dead samples, 1.6 permil for half modern, and 1/4-1/2 permil for typical Fm's of GO SHIP data.
 
 TODO: model blank. Fm change vs Fm. Should be ~3permil @ Fm 0, 0 correction at Fm 1.0398
 
 ```{r}
 
+fun <- function(Fm, FmB) {
+  bcfm <- doLBC(Fm, FmB, 1.0398)
+  Fm - bcfm
+}
+
+base <- ggplot(data.frame(Fm = c(0, 1.5)), aes(Fm))
+base + 
+  geom_hline(yintercept = 0) +
+  stat_function(fun = fun, args = list(FmB = 0.004), color = "orange") +
+  stat_function(fun = fun, args = list(FmB = 0.001), color = "green") +
+  labs(title = "Effect of LBC on Fm for HY vs WS blank",
+       color = "Blank value",
+       y = "Fm difference (meas - LBC)")
+  
 ```
 
 # Next steps
