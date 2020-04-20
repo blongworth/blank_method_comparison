@@ -20,6 +20,8 @@ estimate effect of the correction on GO SHIP and USGS data.
 Maybe just plot average correction amount vs Fm
 
 Apply correction to REDICS using REDICS blanks and check seawater standard agreement
+
+
 Currently, the large blank correction applied to the WS sample type is based on
 the HY blanks on a given wheel. Data from dissolved C-1 blank material and
 radiocarbon-dead water from the Ft. Caswell groundwater site show that large,
@@ -32,6 +34,8 @@ A constant contamination or mass balance correction would be required to fully
 correct for process blank contribution for variable sample sizes. We do not
 have the neccessary data to determine the mass and fraction modern of the blank
 at this point. 
+
+This analysis considers only WSL data. 
 
 ```{r}
 library(amstools)
@@ -81,31 +85,59 @@ wstd <- wstd %>%
       mutate(FmBlankWh = mean(norm_ratio[which(rec_num == 159579)]),
              FmBlankErrWh = Blankerr(norm_ratio[which(rec_num == 159579)]), 
              NblankWh = length(norm_ratio[which(rec_num == 159579)]),
-             FmLBCWh = ifelse(Nblank > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA), # only calc for wheels with 2 blanks
-             FmLBCerrWh = ifelse(Nblank > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
+             FmLBCWh = ifelse(NblankWh > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA), # only calc for wheels with 2 blanks
+             FmLBCerrWh = ifelse(NblankWh > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
                                  pmax(int_err, ext_err), FmBlankErr), NA))
 ```
 
 
 # Definition of the large blank Fm
 
-The table below shows data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. The blank for REDICS and the WSL are slightly different, therefore we should consider applying a different large blank for these processes.
+The table and plots below show data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. The blank for REDICS and the WSL are slightly different, therefore we should consider applying a different large blank for these processes.
 
 ```{r}
-wstd %>% 
-	filter(rec_num %in% c(1081, 159579) %>%
-        group_by(Name, ws_method_num, system) %>%
-        summarize(Fm = mean(fm_corr),
-                  "Fm SD" = sd(fm_corr),
-                  N = n()) %>%
-        arrange(Name) %>%
+blanks <- wstd %>% 
+	filter(rec_num %in% c(83028, 159579)) 
+
+blanks %>%
+  group_by(Name, system) %>%
+  summarize(Fm = mean(norm_ratio),
+            "Fm SD" = sd(norm_ratio),
+            N = n()) %>%
+  arrange(Name) %>%
   kable
 
-ggplot(wstd, aes(norm_ratio, fill = system)) +
-  geom_histogram(alpha = .8) +
-  scale_color_viridis_d() +
-  facet_grid(cols = vars(Name), scales = "free")
+blanks %>% 
+	filter(rec_num %in% c(83028, 159579)) %>%
+  ggplot(aes(norm_ratio, fill = system)) +
+    geom_histogram(alpha = .8) +
+    scale_color_viridis_d() +
+    facet_grid(rows = vars(Name), scales = "free")
 ```
+
+After removing points > 2% modern....
+
+```{r}
+blanks <- wstd %>% 
+	filter(rec_num %in% c(83028, 159579),
+	       norm_ratio < 0.02) 
+
+blanks %>%
+  group_by(Name, system) %>%
+  summarize(Fm = mean(norm_ratio),
+            "Fm SD" = sd(norm_ratio),
+            N = n()) %>%
+  arrange(Name) %>%
+  kable
+
+blanks %>% 
+  ggplot(aes(norm_ratio, fill = system)) +
+    geom_histogram(alpha = .8) +
+    scale_color_viridis_d() +
+    facet_grid(rows = vars(Name), scales = "free")
+
+```
+
 
 
 # Results of the correction for dissolved secondaries
@@ -114,7 +146,7 @@ We can now use the Fm value of the water blanks to apply a large blank correctio
 
 
 ```{r}
-wstdwheel %>% 
+wstd%>% 
       filter(!is.na(FmLBC)) %>%
   group_by(Name, rec_num, system) %>%
         summarize("No Blank" = mean(norm_ratio), 
@@ -122,6 +154,8 @@ wstdwheel %>%
                   "HY LBC err" = mean(sig_fm_corr),
                   "WS LBC" = mean(FmLBC),
                   "WS LBC err" = mean(FmLBCerr),
+                  "Wh WS LBC" = mean(FmLBCWh, na.rm = TRUE),
+                  "Wh WS LBC err" = mean(FmLBCerrWh, na.rm = TRUE),
                   fm_consensus = mean(fm_consensus),
                   N = n()) %>%
         arrange(rec_num) %>%
@@ -130,9 +164,9 @@ wstdwheel %>%
 
 
 ```{r}
-wstdwheel %>%
-  filter(!is.na(FmLBC)) %>%
-  pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
+wstd%>%
+  filter(!is.na(FmLBCWh)) %>%
+  pivot_longer(c(fm_corr, FmLBC, FmLBCWh), names_to = "Method", values_to = "Fm") %>%
   ggplot(aes(Method, Fm)) +
   geom_hline(aes(yintercept = fm_consensus) ) +
   #geom_hline(yintercept = 0.2524) +
@@ -148,6 +182,9 @@ Given the large blank correction formula and knowing the fraction modern of the 
 
 TODO: model blank. Fm change vs Fm. Should be ~3permil @ Fm 0, 0 correction at Fm 1.0398
 
+```{r}
+
+```
 
 # Next steps
 
