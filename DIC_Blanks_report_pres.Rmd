@@ -1,0 +1,264 @@
+---
+title: "Large Blank Correction for WS samples"
+author: "Brett Longworth"
+date: "4/21/2020"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+# Current LBC, why change?
+
+* LBC for WS currently uses HY blanks
+* WS blank is 4 times higher Fm than HY (USAMS)
+  - HY approx 1 permil
+  - WS approx 4 permil
+
+
+```{r}
+library(amstools)
+library(tidyverse)
+library(here)
+library(knitr)
+library(odbc)
+library(blanks)
+
+options(digits = 4)
+theme_set(theme_light())
+
+# Function to calculate SNICSer-style LBC error floors
+Blankerr <- function(blankfm) {
+  mfm <- mean(blankfm)
+  sd <- sd(blankfm)
+  ifelse(sd > mfm / 2, sd, mfm / 2)
+}
+
+data <- read_csv(here("data/wstd.csv"))
+
+wstd <- data %>%
+  filter(ws_method_num == 410305) %>% # only use WSL data
+  mutate(Name = ordered(recode(as.character(rec_num), 
+                                 "1081" = "C1", 
+                                 "83028" = "C1", 
+                                 "1082" = "C2", 
+                                 "17185" = "TIRI-I",
+                                 "159579" = "GW Blank")),
+         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) %>%
+  group_by(system, rec_num) %>%
+  mutate(outlier = is.na(removeOutliers(norm_ratio))) 
+
+# Calculate large blank correction by system
+wstd <- wstd %>%
+  group_by(system) %>%
+      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]),
+             FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
+             FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr))
+
+
+# Calculate large blank correction by wheel
+wstd <- wstd %>%
+  group_by(wheel) %>%
+      mutate(FmBlankWh = mean(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]),
+             FmBlankErrWh = Blankerr(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]), 
+             NblankWh = length(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]),
+             FmLBCWh = ifelse(NblankWh > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA), # only calc for wheels with 2 blanks
+             FmLBCerrWh = ifelse(NblankWh > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
+                                 pmax(int_err, ext_err), FmBlankErr), NA))
+```
+
+---
+# Definition of the large blank Fm
+
+* Fm of Ft. Caswell groundwater and dissolved C-1 are comparable
+* Can be used interchangably as LBC blank
+* Several C-1 outliers removed
+
+```{r}
+blanks <- wstd %>% 
+	filter(rec_num %in% c(83028, 159579)) 
+
+blanks %>%
+  group_by(Name, system) %>%
+  summarize(Fm = mean(norm_ratio),
+            "Fm SD" = sd(norm_ratio),
+            "Fm (no outliers)" = mean(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
+            "Fm SD (no outliers)" = sd(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
+            N = n()) %>%
+  arrange(Name) %>%
+  kable('html')
+```
+
+---
+
+# Distribution of WS blanks
+
+```{r}
+blanks %>% 
+	filter(rec_num %in% c(83028, 159579)) %>%
+  ggplot(aes(norm_ratio, fill = system)) +
+    geom_histogram(alpha = .8) +
+    scale_color_viridis_d() +
+    facet_grid(rows = vars(Name), scales = "fixed") +
+    labs(title = "Normalized Fm of WS blanks",
+         x = "Normalized Fm (no LBC)")
+```
+
+---
+
+# Without outliers
+
+
+```{r}
+wstd %>% 
+	filter(rec_num %in% c(83028, 159579),
+	       outlier == FALSE,
+	       norm_ratio < 0.02) %>%
+  ggplot(aes(norm_ratio, fill = system)) +
+    geom_histogram(alpha = .8) +
+    scale_color_viridis_d() +
+    facet_grid(rows = vars(Name), scales = "fixed") +
+    labs(title = "Normalized Fm of WS blanks, outliers removed",
+         x = "Normalized Fm (no LBC)")
+
+```
+
+---
+
+# Results of the correction for dissolved secondaries
+
+
+```{r}
+wstd%>% 
+      filter(!is.na(FmLBC),
+             !is.na(fm_consensus)) %>%
+  group_by(Name, rec_num, system) %>%
+        summarize("No Blank" = mean(norm_ratio), 
+                  "HY LBC" = mean(fm_corr),
+                  "HY LBC err" = mean(sig_fm_corr),
+                  "WS LBC" = mean(FmLBC),
+                  "WS LBC err" = mean(FmLBCerr),
+                  fm_consensus = mean(fm_consensus),
+                  N = n()) %>%
+        arrange(rec_num) %>%
+  kable('html')
+```
+
+---
+# Correction results
+
+```{r}
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         !(rec_num == 83028 & norm_ratio > 0.02)) %>%
+  rename("No LBC" = norm_ratio, "HY LBC" = fm_corr, "WS LBC" = FmLBC) %>%
+  pivot_longer(c("No LBC", "HY LBC", "WS LBC"), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(fct_reorder(Method, Fm, .desc = TRUE), Fm)) +
+  geom_hline(aes(yintercept = fm_consensus) ) +
+  geom_boxplot() +
+  geom_jitter() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free") +
+  labs(title = "Distribution of HY and WS corrected Fm for secondary standards and blanks",
+       x = "Blank cor method")
+  
+
+```
+
+---
+# Modeling the correction for varying sample Fm
+
+* Modelled effect of LBC on ratio for HY blank and WS blank
+* Difference is ~3 permil for dead samples, ~0.5 permil for nearly-modern
+
+
+---
+# Modeling the correction 
+
+```{r}
+# curve function
+fun <- function(Fm, FmB) {
+  bcfm <- doLBC(Fm, FmB, 1.0398)
+  Fm - bcfm
+}
+
+# model plot
+base <- ggplot(data.frame(Fm = c(0, 1.5)), aes(Fm))
+base + 
+  geom_hline(yintercept = 0) +
+  stat_function(fun = fun, args = list(FmB = 0.004), aes(color = "WS LBC"), size = 1) +
+  stat_function(fun = fun, args = list(FmB = 0.001), aes(color = "HY LBC"), size = 1) +
+  scale_color_manual("LBC curve", values = c("orange", "green")) +
+  labs(title = "Effect of LBC on Fm for HY vs WS blank",
+       color = "Blank value",
+       y = "Fm difference (meas - LBC)")
+  
+```
+
+
+---
+
+# Model with secondary and blank data
+
+```{r}
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         system == "USAMS",
+         !(rec_num == 83028 & norm_ratio > 0.02)) %>%
+  mutate(Fm = norm_ratio,
+         Fm_diff = norm_ratio - fm_consensus) %>%
+  ggplot(aes(Fm, Fm_diff, shape = Name)) +
+  geom_hline(yintercept = 0) +
+  stat_function(fun = fun, args = list(FmB = 0.004), aes(color = "WS LBC"), size = 1) +
+  stat_function(fun = fun, args = list(FmB = 0.001), aes(color = "HY LBC"), size = 1) +
+  geom_point() +
+  xlim(0,1.5) +
+  scale_color_manual("LBC curve", values = c("orange", "green")) +
+  labs(title = "Data difference from consensus with HY vs WS blank curves",
+       color = "Blank value",
+       y = "Fm difference (meas - LBC)")
+  
+  
+```
+
+---
+# Mass dependence
+
+* C-1 data may show mass-dependence
+* not enough data for other sample types
+* dillution experiment with groundwater blank and modern seawater standard may provide adequate data for curves
+
+
+---
+# Mass dependence
+
+```{r}
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         rec_num == 83028,
+         norm_ratio < 0.02) %>%
+  ggplot(aes(total_umols_co2, norm_ratio)) + 
+  geom_point()
+```
+
+# Next steps
+
+* Using the water blanks to perform a large blank correction has a significant effect on reported ratios that differ from the ratio of the standard. 
+* This correction would improve the accuracy of water sample measurements, especially at low Fm. 
+* Developing a constant contamination/mass balance model
+  - Samples of differing mass would get an appropriate correction
+  - Large mass samples would get a correction that accounts for the fact that the normalizing standards do not contain the process blank for the water lines.
+
