@@ -1,31 +1,21 @@
 ---
 title: "DIC Blanks"
 author: "Brett Longworth"
-date: "3/12/2020"
+date: "4/21/2020"
 output:
   html_document: default
   word_document: default
   pdf_document: default
 ---
 
-TODO: 
-
-look at seawater standards
-Get data for ARM, etc...
-
-remove outliers
-Use 3x interquartile
-
-estimate effect of the correction on GO SHIP and USGS data.
-Maybe just plot average correction amount vs Fm
-
-Apply correction to REDICS using REDICS blanks and check seawater standard agreement
-
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
 
 Currently, the large blank correction applied to the WS sample type is based on
 the HY blanks on a given wheel. Data from dissolved C-1 blank material and
 radiocarbon-dead water from the Ft. Caswell groundwater site show that large,
-dead samples return values around Fm 0.003, indicating that the process has a
+dead samples return values around Fm 0.004, indicating that the process has a
 significant non-dead blank component. In this document, I define this blank and
 show the effect of using it to correct dissolved secondary standards and model
 the effect on large samples of varying Fm. 
@@ -35,7 +25,7 @@ correct for process blank contribution for variable sample sizes. We do not
 have the neccessary data to determine the mass and fraction modern of the blank
 at this point. 
 
-This analysis considers only WSL data. 
+This analysis considers only WSL data. REDICS blank data differ, and we should consider whether a separate LBC for REDICS is necessary.
 
 ```{r}
 library(amstools)
@@ -45,7 +35,7 @@ library(knitr)
 library(odbc)
 library(blanks)
 
-options(digits = 5)
+options(digits = 4)
 theme_set(theme_light())
 
 # Function to calculate SNICSer-style LBC error floors
@@ -82,9 +72,9 @@ wstd <- wstd %>%
 # Calculate large blank correction by wheel
 wstd <- wstd %>%
   group_by(wheel) %>%
-      mutate(FmBlankWh = mean(norm_ratio[which(rec_num == 159579)]),
-             FmBlankErrWh = Blankerr(norm_ratio[which(rec_num == 159579)]), 
-             NblankWh = length(norm_ratio[which(rec_num == 159579)]),
+      mutate(FmBlankWh = mean(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]),
+             FmBlankErrWh = Blankerr(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]), 
+             NblankWh = length(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]),
              FmLBCWh = ifelse(NblankWh > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA), # only calc for wheels with 2 blanks
              FmLBCerrWh = ifelse(NblankWh > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
                                  pmax(int_err, ext_err), FmBlankErr), NA))
@@ -93,7 +83,7 @@ wstd <- wstd %>%
 
 # Definition of the large blank Fm
 
-The table and plots below show data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. The blank for REDICS and the WSL are slightly different, therefore we should consider applying a different large blank for these processes.
+The table and plots below show data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. There have been intermittent problems with the dissolution of C-1 which caused high values that are removed in the "no outliers" columns and in the second plot below. These outlier values are not used for LBC.
 
 ```{r}
 blanks <- wstd %>% 
@@ -103,6 +93,8 @@ blanks %>%
   group_by(Name, system) %>%
   summarize(Fm = mean(norm_ratio),
             "Fm SD" = sd(norm_ratio),
+            "Fm (no outliers)" = mean(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
+            "Fm SD (no outliers)" = sd(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
             N = n()) %>%
   arrange(Name) %>%
   kable
@@ -112,50 +104,45 @@ blanks %>%
   ggplot(aes(norm_ratio, fill = system)) +
     geom_histogram(alpha = .8) +
     scale_color_viridis_d() +
-    facet_grid(rows = vars(Name), scales = "free")
+    facet_grid(rows = vars(Name), scales = "fixed") +
+    labs(title = "Normalized Fm of WS blanks",
+         x = "Normalized Fm (no LBC)")
 ```
 
 After removing points > 2% modern....
 
 ```{r}
-blanks <- wstd %>% 
+wstd %>% 
 	filter(rec_num %in% c(83028, 159579),
-	       norm_ratio < 0.02) 
-
-blanks %>%
-  group_by(Name, system) %>%
-  summarize(Fm = mean(norm_ratio),
-            "Fm SD" = sd(norm_ratio),
-            N = n()) %>%
-  arrange(Name) %>%
-  kable
-
-blanks %>% 
+	       outlier == FALSE,
+	       norm_ratio < 0.02) %>%
   ggplot(aes(norm_ratio, fill = system)) +
     geom_histogram(alpha = .8) +
     scale_color_viridis_d() +
-    facet_grid(rows = vars(Name), scales = "free")
+    facet_grid(rows = vars(Name), scales = "fixed") +
+    labs(title = "Normalized Fm of WS blanks, outliers removed",
+         x = "Normalized Fm (no LBC)")
 
 ```
 
+For comparison the mean normalized ratio of the TIRI-F HY blank for the last 6 months was 0.0012 for USAMS and 0.0025 for CFAMS.
 
 
 # Results of the correction for dissolved secondaries
 
-We can now use the Fm value of the water blanks to apply a large blank correction to water samples. This is applied using the LBC and LBC error formulas from SNICSer. I've looked at applying these using a per-wheel blank Fm average and a per-system average. Because each wheel with water samples didn't include two water blanks, data from the per-wheel method is sparse.
+We can now use the Fm value of the water blanks to apply a large blank correction to water samples. I've used the groundwater blank for LBC since it is run more often and produces tighter data. The LBC is applied using the formulae for LBC and LBC error from SNICSer. I've looked at applying these using a per-wheel blank Fm average and a per-system average. Because each wheel with water samples didn't include two water blanks, data from the per-wheel method is sparse. The per-wheel and instrument average LBC produce very similar results, so I show only the per-system results here.
 
 
 ```{r}
 wstd%>% 
-      filter(!is.na(FmLBC)) %>%
+      filter(!is.na(FmLBC),
+             !is.na(fm_consensus)) %>%
   group_by(Name, rec_num, system) %>%
         summarize("No Blank" = mean(norm_ratio), 
                   "HY LBC" = mean(fm_corr),
                   "HY LBC err" = mean(sig_fm_corr),
                   "WS LBC" = mean(FmLBC),
                   "WS LBC err" = mean(FmLBCerr),
-                  "Wh WS LBC" = mean(FmLBCWh, na.rm = TRUE),
-                  "Wh WS LBC err" = mean(FmLBCerrWh, na.rm = TRUE),
                   fm_consensus = mean(fm_consensus),
                   N = n()) %>%
         arrange(rec_num) %>%
@@ -164,55 +151,87 @@ wstd%>%
 
 
 ```{r}
-wstd%>%
-  filter(!is.na(FmLBCWh)) %>%
-  pivot_longer(c(fm_corr, FmLBC, FmLBCWh), names_to = "Method", values_to = "Fm") %>%
-  ggplot(aes(Method, Fm)) +
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         !(rec_num == 83028 & norm_ratio > 0.02)) %>%
+  rename("No LBC" = norm_ratio, "HY LBC" = fm_corr, "WS LBC" = FmLBC) %>%
+  pivot_longer(c("No LBC", "HY LBC", "WS LBC"), names_to = "Method", values_to = "Fm") %>%
+  ggplot(aes(fct_reorder(Method, Fm, .desc = TRUE), Fm)) +
   geom_hline(aes(yintercept = fm_consensus) ) +
-  #geom_hline(yintercept = 0.2524) +
-  #geom_hline(yintercept = 0.4114) +
   geom_boxplot() +
-  facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
+  geom_jitter() +
+  facet_grid(rows = vars(Name), cols = vars(system), scales = "free") +
+  labs(title = "Distribution of HY and WS corrected Fm for secondary standards and blanks",
+       x = "Blank cor method")
+  
+
 ```
 
 
 # Modeling the correction for varying sample Fm
 
-Given the large blank correction formula and knowing the fraction modern of the water blank samples, we can model the effect of the correction of samples by their Fm. The simple model below assumes a WS large blank of 4 permil and a HY blank of 1 permil. The plot shows the difference in Fm (measured - Corrected) for these two corrections. The difference between our current HY LBC and the proposed WS LBC is the difference between the orange and green lines. The difference is roughly 3 permil for dead samples, 1.6 permil for half modern, and 1/4-1/2 permil for typical Fm's of GO SHIP data.
+Given the large blank correction formula and knowing the fraction modern of the water blank samples, we can model the effect of the correction of samples by their Fm. The simple model below assumes a WS large blank (orange line) of 4 permil and a HY blank (green line) of 1 permil. The plot shows the difference in Fm (measured - Corrected) for these two corrections. The difference between our current HY LBC and the proposed WS LBC is the difference between the orange and green lines. The difference is roughly 3 permil for dead samples, 1.6 permil for half modern, and 1/4-1/2 permil for typical Fm's of GO SHIP data.
 
-TODO: model blank. Fm change vs Fm. Should be ~3permil @ Fm 0, 0 correction at Fm 1.0398
+The second plot shows the difference of secondary and blank samples from their consensus value vs Fm. The LBC models for the WS blank and HY blank are shown.
+
 
 ```{r}
-
+# curve function
 fun <- function(Fm, FmB) {
   bcfm <- doLBC(Fm, FmB, 1.0398)
   Fm - bcfm
 }
 
+# model plot
 base <- ggplot(data.frame(Fm = c(0, 1.5)), aes(Fm))
 base + 
   geom_hline(yintercept = 0) +
-  stat_function(fun = fun, args = list(FmB = 0.004), color = "orange") +
-  stat_function(fun = fun, args = list(FmB = 0.001), color = "green") +
+  stat_function(fun = fun, args = list(FmB = 0.004), aes(color = "WS LBC"), size = 1) +
+  stat_function(fun = fun, args = list(FmB = 0.001), aes(color = "HY LBC"), size = 1) +
+  scale_color_manual("LBC curve", values = c("orange", "green")) +
   labs(title = "Effect of LBC on Fm for HY vs WS blank",
        color = "Blank value",
        y = "Fm difference (meas - LBC)")
   
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         system == "USAMS",
+         !(rec_num == 83028 & norm_ratio > 0.02)) %>%
+  mutate(Fm = norm_ratio,
+         Fm_diff = norm_ratio - fm_consensus) %>%
+  ggplot(aes(Fm, Fm_diff, shape = Name)) +
+  geom_hline(yintercept = 0) +
+  stat_function(fun = fun, args = list(FmB = 0.004), aes(color = "WS LBC"), size = 1) +
+  stat_function(fun = fun, args = list(FmB = 0.001), aes(color = "HY LBC"), size = 1) +
+  geom_point() +
+  xlim(0,1.5) +
+  scale_color_manual("LBC curve", values = c("orange", "green")) +
+  labs(title = "Data difference from consensus with HY vs WS blank curves",
+       color = "Blank value",
+       y = "Fm difference (meas - LBC)")
+  
+  
+```
+
+# Mass dependence
+
+The dissolved C-1 blank data may indicate that the WSL has a mass dependent blank. There is not enough data for C-2 or modern seawater standards to show a size relationship for high Fm samples. A dillution experiment with the groundwater blank and a seawater standard may be a relatively easy way to start developing mass dependent blank curves.
+
+
+```{r}
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         rec_num == 83028,
+         norm_ratio < 0.02) %>%
+  ggplot(aes(total_umols_co2, norm_ratio)) + 
+  geom_point()
 ```
 
 # Next steps
 
-It is clear that using the water blanks to perform a large blank correction has a significant effect on reported ratios that differ from the ratio of the standard. This correction alone would improve the accuracy of water sample measurements, especially at low Fm. 
+Using the water blanks to perform a large blank correction has a significant effect on reported ratios that differ from the ratio of the standard. This correction would improve the accuracy of water sample measurements, especially at low Fm. 
 
 Developing a constant contamination/mass balance model for water samples would be useful for two reasons. First, samples of differing mass would get an appropriate correction. Second, large mass samples would get a correction that accounts for the fact that the normalizing standards do not contain the process blank for the water lines.
-
-Samples run on REDICS show that this system has a smaller blank than the WSL. The large and mass balance blank of both lines should be compared to determine whether separate blanks should be used for each line.
-
-
-
-
-
-
-
-
-
