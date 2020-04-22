@@ -8,6 +8,18 @@ output:
   pdf_document: default
 ---
 
+Currently, the large blank correction applied to the WS sample type is based on the HY blanks on a given wheel. Data from dissolved C-1 blank material and radiocarbon-dead water from the Ft. Caswell groundwater site show that large, dead samples return values around Fm 0.003, indicating that the process has a significant non-dead blank component. In this document, I define this blank and show the effect of using it to correct dissolved secondary standards and model the effect on large samples of varying Fm. 
+
+A constant contamination or mass balance correction would be required to fully correct for process blank contribution for variable sample sizes. We do not have the neccessary data to determine the mass and fraction modern of the blank at this point. 
+
+# Definition of the large blank Fm
+
+# Results of the correction for dissolved secondaries
+
+# Modeling the correction for varying sample Fm
+
+# Next steps
+
 What is the effect of using WS process blanks for correcting water secondaries? 
 
 1. Extract DIC data by wheel.
@@ -23,7 +35,7 @@ look at seawater standards
 Get data for ARM, etc...
 
 remove outliers
-Use 1.5x interquartile
+Use 3x interquartile
 
 estimate effect of the correction on GO SHIP and USGS data.
 Maybe just plot average correction amount vs Fm
@@ -69,7 +81,9 @@ wstd <- data %>%
                                  "1082" = "C2", 
                                  "17185" = "TIRI-I",
                                  "159579" = "GW Blank")),
-         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) 
+         fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) %>%
+  group_by(system, rec_num) %>%
+  mutate(outlier = is.na(removeOutliers(norm_ratio))) 
 ```
 
 Data summary
@@ -97,7 +111,7 @@ Because not all wheels with DIC secondaries had two WS blanks, we can use a syst
 wstdsys <- wstd %>%
   group_by(system) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
-             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]), #use SNICSer error calc here
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]),
              FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
              FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
                                  pmax(int_err, ext_err), FmBlankErr))
@@ -121,11 +135,12 @@ wstdsys %>%
 wstdsys %>%
   filter(!is.na(FmLBC)) %>%
   pivot_longer(c(fm_corr, FmLBC), names_to = "Method", values_to = "Fm") %>%
-  ggplot(aes(Method, Fm)) +
+  ggplot(aes(Method, Fm, color = outlier)) +
   geom_hline(aes(yintercept = fm_consensus) ) +
   #geom_hline(yintercept = 0.2524) +
   #geom_hline(yintercept = 0.4114) +
   geom_boxplot() +
+  geom_jitter() +
   facet_grid(rows = vars(Name), cols = vars(system), scales = "free")
 ```
 
