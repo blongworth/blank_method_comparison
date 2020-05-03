@@ -33,6 +33,7 @@ library(odbc)
 library(glue)
 library(tidyverse)
 library(here)
+library(readxl)
 ```
 
 ## Get data
@@ -66,17 +67,20 @@ up going into these wheels in snicser and fixing the values that differed by
 more than 0.000001.
 
 ```{r}
+data %>%
+  filter(table == "snics_results_test",
+         fm_mb_corr == 0)
 # Check that LB values are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
   arrange(wheel, process, wheel_pos) %>%
-  filter(!near(snics_results, snics_results_test, tol = 0.000001),
+  filter(!near(snics_results, snics_results_test, tol = 1E-8),
          ss == 0)
 
 # Check that LB errors are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
-  filter(!near(snics_results, snics_results_test, tol = 0.000001),
+  filter(!near(snics_results, snics_results_test, tol = 1E-8),
          ss == 0)
 ```
 
@@ -149,8 +153,12 @@ Here are the differences in final fm for large samples not including -99s.
 
 ```{r}
 data %>%
+  filter(#ss == 1,
+         table == "snics_results_test",
+         fm_mb_corr == 0 | is.na(fm_mb_corr))
+data %>%
   filter(ss == 0) %>%
-  mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr)) %>%
+  mutate(Fmodern = ifelse(is.na(fm_mb_corr) | fm_mb_corr == 0, fm_corr, fm_mb_corr)) %>%
   pivot_wider(c(wheel, wheel_pos, tp_num), 
               names_from = table, values_from = Fmodern) %>%
   mutate(fm_diff = snics_results - snics_results_test) %>%
@@ -158,10 +166,11 @@ data %>%
   arrange(-abs(fm_diff))
 ```
 
-## Comparison with MBC blank cor in R
+## Comparison with MBC blank cor in R and Excel
 
 This section compares the new SNICSer calculations to what should be the same calculation done in R. Mark and I have both seen small differences before, likely due to rounding errors. Just looking at CFAMS031020 to start.
 
+TODO: Move to get_snicser_data.R
 
 ```{r}
 # Function to get data from dc13_test
@@ -176,6 +185,10 @@ con <- conNOSAMS()
   data
 }
 
+dc13 <- getdc13(data$tp_num)
+data %>%
+  left_join(dc13, by = "tp_num") %>% 
+  select(process, fm_blank)
 # get data from snics_results
 con <- conNOSAMS()
 #d <- getWheel("CFAMS031020", test = TRUE) %>%
@@ -247,6 +260,24 @@ ggplot(cf031020s, aes(total_umols_co2, snfm)) +
   geom_point() +
   #ylim(-0.001, 0.001) +
   xlim(0, 50)
+```
+
+#### MR Excel data
+
+```{r}
+mrdata <- read_excel(here("data/CFAMS03102 MBC Test Results.xlsx"), skip = 3, col_names = FALSE) %>%
+  .[c(3, 25, 26)] %>%
+  rename(tp_num = "...3",
+         mrbcfm = "...25",
+         mrbcfmerr = "...26")
+
+cf031020 %>%
+  filter(wheel == "CFAMS031020") %>%
+  pivot_wider(c(tp_num, wheel_pos), 
+              names_from = table, values_from = fm_mb_corr) %>%
+  mutate(both_NA = is.na(snics_results) & is.na(snics_results_test)) %>%
+  arrange(wheel_pos) %>%
+  inner_join(mrdata)
 ```
 
 ### Comparison with consensus
