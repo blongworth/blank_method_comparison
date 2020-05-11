@@ -1,0 +1,1 @@
+pandoc SNICSer_blank_eqns.md -t html -s -o snicser_blank_eqns.html --mathjax=https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML -H header 
