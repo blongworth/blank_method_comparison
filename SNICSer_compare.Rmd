@@ -42,6 +42,7 @@ library(readxl)
 ```{r}
 whdata <- read_csv(here("data/results.csv"))
 data <- read_csv(here("data/SNICSer_blank_compare.csv"))
+unique(whdata$wheel)
 ```
 
 ## Find data issues
@@ -64,23 +65,28 @@ data %>%
 Look at LBC values by wheel. I haven't been able to figure out what causes some
 of the differences. It's possible the wheel values were edited manually. I ended
 up going into these wheels in snicser and fixing the values that differed by
-more than 0.000001.
+more than 0.000001. Need to remember that small samples get book values
+
+* CFAMS020620, flag Kauri wood
+* CFAMS021120, leave Praxair unflagged
+* CFAMS021820, Kauri included in original analysis by mistake
+* CFAMS022620, Couldn't flag to produce original values, DB values from orig. copied
+
+
+
 
 ```{r}
-data %>%
-  filter(table == "snics_results_test",
-         fm_mb_corr == 0)
 # Check that LB values are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
   arrange(wheel, process, wheel_pos) %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-8),
+  filter(!near(snics_results, snics_results_test, tol = 1E-6),
          ss == 0)
 
 # Check that LB errors are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-8),
+  filter(!near(snics_results, snics_results_test, tol = 1E-6),
          ss == 0)
 ```
 
@@ -95,6 +101,10 @@ data %>%
   mutate(fm_diff = snics_results - snics_results_test) %>%
   filter(!near(snics_results, snics_results_test, tol = 1E-15))
 ```
+
+## Differences due to new methods
+
+Everything here should be due to changes in blank cor method, not due to changes in analysis.
 
 ### Large blank differences
 
@@ -154,7 +164,7 @@ Here are the differences in final fm for large samples not including -99s.
 ```{r}
 data %>%
   filter(#ss == 1,
-         table == "snics_results_test",
+         table == "snics_results",
          fm_mb_corr == 0 | is.na(fm_mb_corr))
 data %>%
   filter(ss == 0) %>%
@@ -284,6 +294,8 @@ cf031020 %>%
 
 Here I'm looking at only standards that we have a known value for in the DB.
 
+Compare just small samples with previous and new MBC
+
 ```{r}
 # get consensus values
 cons <- getStdTable() %>%
@@ -291,12 +303,13 @@ cons <- getStdTable() %>%
 
 # merge with data by tp. Keep only standards
 consdata <- inner_join(data, cons, by = "rec_num") %>%
+  filter(sample_type != "S") %>%
   mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr),
-         normFm = normFm(Fmodern, fm_consensus)) %>%
-  filter(Fmodern > -1)
+         FmErr = ifelse(is.na(sig_fm_mb_corr), sig_fm_corr, sig_fm_mb_corr),
+         normFm = normFm(Fmodern, fm_consensus),
+         sigma = sigma(Fmodern, fm_consensus, FmErr))
 
 consdata %>%
-  filter(Fmodern > 0.1) %>%
   group_by(table) %>%
   summary()
 ```
@@ -305,7 +318,7 @@ Fm disagreement with consensus blows up at very low Fm and with some samples < 2
 
 ```{r}
 consdata %>%
-  filter(Fmodern > 0.1, total_umols_co2 < 500) %>%
+  filter(fm_mb_corr > 0.1, total_umols_co2 < 500) %>%
 ggplot(aes(total_umols_co2, normFm, color = table)) +
   geom_point()
 consdata %>%
@@ -313,9 +326,34 @@ consdata %>%
 ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
 consdata %>%
-  filter(Fmodern > 0.1) %>%
+  filter(fm_mb_corr > 0.1) %>%
 ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
 ```
 
+Compare average agreement with consensus for Fm > 0.1 for new and old methods
 
+```{r}
+consdata %>%
+  filter(fm_mb_corr > 0.1,
+         ss == 1) %>%
+  group_by(table) %>%
+    summarize("Mean normalized Fm" = mean(normFm),
+              "SD of norm Fm" = sd(normFm),
+              "Sigma of Fm" = mean(sigma),
+              "SD of Sigma" = sd(sigma),
+              N = n())
+```
+
+Compare old and new, including large samples that now get MBC.
+
+```{r}
+consdata %>%
+  filter(Fmodern > 0.1) %>%
+  group_by(table) %>%
+    summarize("Mean normalized Fm" = mean(normFm),
+              "SD of norm Fm" = sd(normFm),
+              "Sigma of Fm" = mean(sigma),
+              "SD of Sigma" = sd(sigma),
+              N = n())
+```
