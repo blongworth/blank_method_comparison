@@ -49,9 +49,21 @@ unique(whdata$wheel)
 
 Just sanity checking to make sure SNICSer's working and that we're looking at the right data.
 
+### MBC written as 0
+
+Standards and targets without mass and or MBC values should have NA for fm_mb_corr.
+
+```{r}
+data %>%
+  filter(fm_mb_corr == 0 )
+```
+
 ### Compare normalization method
 
 No rows mean all wheels use the same norm method for both test and production.
+All used 12 except:
+CFAMS022620 used 14
+ pos 57 on CFAMS022620 demoted to SS
 
 ```{r}
 data %>%
@@ -67,10 +79,10 @@ of the differences. It's possible the wheel values were edited manually. I ended
 up going into these wheels in snicser and fixing the values that differed by
 more than 0.000001. Need to remember that small samples get book values
 
-* CFAMS020620, flag Kauri wood
-* CFAMS021120, leave Praxair unflagged
+* CFAMS020620, don't use Kauri wood, should be 0.0048399 OC
+* CFAMS021120, Praxair used as blank
 * CFAMS021820, Kauri included in original analysis by mistake
-* CFAMS022620, Couldn't flag to produce original values, DB values from orig. copied
+* CFAMS022620, HY/GS blank error is 0.0013, not 0.00165 as calculated. Enter manually.
 
 
 
@@ -80,13 +92,13 @@ more than 0.000001. Need to remember that small samples get book values
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
   arrange(wheel, process, wheel_pos) %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-6),
+  filter(!near(snics_results, snics_results_test, tol = 1E-5),
          ss == 0)
 
 # Check that LB errors are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-6),
+  filter(!near(snics_results, snics_results_test, tol = 1E-5),
          ss == 0)
 ```
 
@@ -119,7 +131,7 @@ data %>%
   arrange(-abs(fm_diff))
 ```
 
-This leads to discrepancies in fm_corr of up to 0.0028 for small samples.
+This leads to discrepancies in fm_corr of up to 0.0031 for small samples.
 
 ```{r}
 data %>%
