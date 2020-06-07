@@ -9,9 +9,9 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-This report compares data for a suite of wheels analysed with the production
-version of SNICSer (2.84) with results from the same wheels analysed with a new
-version of SNICSer that includes the following changes to the blank correction
+This report compares data for a suite of wheels analyzed with the production
+version of SNICSer (2.84) with results from the same wheels analyzed with a new
+version of SNICSer (2.92) that includes the following changes to the blank correction
 method:
 
 1. Mass balance correction for all samples
@@ -19,10 +19,10 @@ method:
 3. Total_mass instead of target_mass
 4. Subtract mass of blank from total mass to get mass of unknown in MBC functions
 5. New parameters for mass balance correction
+6. Mass error from dc13 table
    
-The same flagging and large wheel blank values are used for both runs. The data
-for the test version was read from the raw results files, and the flagging from
-the production run was read in from a saved file. This is the method used:
+
+This method was used to analyse test wheels:
 
 1. Load wheels in prod version of snicser
 2. inherit 1st analyst's flags
@@ -32,7 +32,7 @@ the production run was read in from a saved file. This is the method used:
 6. blank correct
 7. first authorize
 
-The normalization method and large blank values were set to match the origninal analysis. norm_ratio, int_err, ext_err, lg_blk_fm, and sig_lg_blk_fm were checked and are the same for both analyses. 
+The same normalization method, flagging, and large wheel blank values are used for both runs. I confirmed that norm_ratio, int_err, ext_err, lg_blk_fm, and sig_lg_blk_fm are the same for both analyses. fm_corr and sig_fm_corr are the same for all large samples, but differs for small samples due to the change in method.
 
 ```{r}
 library(amstools)
@@ -43,133 +43,66 @@ library(here)
 library(readxl)
 ```
 
-## Get data
+## Load data
+
 
 ```{r}
-whdata <- read_csv(here("data/results.csv"))
 data <- read_csv(here("data/SNICSer_blank_compare.csv"))
 ```
 
-## Differences due to new methods
+## Differences between BC methods
 
-Everything here should be due to changes in blank cor method, not due to changes in analysis.
+Differences are given as production result - test result.
 
 ### Large blank differences
 
-All differences > 1E-5 in fm_corr are due to changing from long term lg_blk_fm to values from the wheel. There's a small difference in in a few other wheels, but nothing greater than 1E-6.
+Differences in the large blank corrected Fm are due to changing from long term average blank to values from the wheel. There's a small difference in in a few other wheels, but nothing greater than 1E-6. 
 
 ```{r}
-data %>%
-  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
-              names_from = table, values_from = lg_blk_fm) %>%
-  mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
-  arrange(-abs(fm_diff))
-```
-
-Using large blanks from the wheel rather than stored values leads to discrepancies in fm_corr of up to 0.0028 for small samples.
-
-```{r}
-data %>%
+lbc_diff <- data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = fm_corr) %>%
-  mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
+  mutate(fm_diff = snics_results - snics_results_test)
+
+lbc_diff %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-08)) %>%
   arrange(-abs(fm_diff))
 ```
 
-### MBC differences
+Using large blanks from the wheel rather than stored values leads to discrepancies in fm_corr of up to {r max(lbc_diff$fm_diff)} for small samples.
 
-#### Small samples
 
-Here are the differences between methods for small samples. Keep in mind that some of this is driven by the different lg_blk_fm used for LBC for these samples.
+### MBC Fm differences
 
-```{r}
-data %>%
-  pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
-              names_from = table, values_from = fm_mb_corr) %>%
-  mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-06), ss == 1) %>%
-  arrange(-abs(fm_diff))
-```
-
-SNICSer now handles missing MBC parameters by setting the MBC fields in snics_results to Null. This should make it easy to turn MBC on and off with the parameters in dc13.
+The table below shows the differences in reported Fm between methods for all samples. Samples that did not get a MBC (primaries, Ceylon, and samples without MBC parameters) are not included. 
 
 ```{r}
 data %>%
-  pivot_wider(c(wheel, wheel_pos), 
-              names_from = table, values_from = fm_mb_corr) %>%
-  mutate(both_NA = is.na(snics_results) & is.na(snics_results_test)) %>%
-  filter(is.na(snics_results_test)) %>%
-  arrange(wheel, wheel_pos)
-```
-
-#### Large samples
-
-The differences in final fm for large samples not including -99s.
-
-```{r}
-data %>%
-  filter(#ss == 1,
-         table == "snics_results",
-         fm_mb_corr == 0 | is.na(fm_mb_corr))
-data %>%
-  filter(ss == 0) %>%
   mutate(Fmodern = ifelse(is.na(fm_mb_corr) | fm_mb_corr == 0, fm_corr, fm_mb_corr)) %>%
-  pivot_wider(c(wheel, wheel_pos, tp_num), 
+  pivot_wider(c(wheel, wheel_pos, tp_num, mass), 
               names_from = table, values_from = Fmodern) %>%
   mutate(fm_diff = snics_results - snics_results_test) %>%
-  filter(snics_results_test > -1) %>%
   arrange(-abs(fm_diff))
 ```
 
-## Comparison with MBC blank cor in R and Excel
 
-This section compares the new SNICSer calculations to what should be the same mass balance calculations done outside of SNICSer using Rand Excel (provided by Mark). Mark and I have both seen small differences before. The cause of the differences is uncertain, but they are small and do not significantly affect results.
 
-TODO: Move to get_snicser_data.R
+## Validation of calculations 
+
+This section compares the new SNICSer calculations to what should be the same mass balance calculations done outside of SNICSer using R and Excel (provided by Mark). Mark and I have both seen small differences before. The cause of the differences is uncertain, but they are small and do not significantly affect results.
+
 
 ```{r}
-# Function to get data from dc13_test
-getdc13test <- function(tps) {
-con <- conNOSAMS()
-  sql <- glue::glue_sql("SELECT * FROM dc13_test WHERE tp_num IN ({tp*})",
-                  tp = tps,
-                  .con = con)
-  query <- odbc::dbSendQuery(con, sql)
-  data <- odbc::dbFetch(query)
-  odbc::dbClearResult(query)
-  data
-}
-
-dc13 <- getdc13(data$tp_num)
-data %>%
-  left_join(dc13, by = "tp_num") %>% 
-  select(process, fm_blank)
-# get data from snics_results
-con <- conNOSAMS()
-#d <- getWheel("CFAMS031020", test = TRUE) %>%
-d <- getWheel(wheels, test = TRUE) %>%
-  filter(fm_mb_corr > 0.05)
-# get info from dc13
-dc13 <- getdc13(d$tp_num)
-cf031020 <- d %>%
-  left_join(dc13, by = "tp_num") %>% 
-  mutate(total_ug_co2 = total_umols_co2 * 12.015,
-         graphite_ug_co2 = graphite_umols_co2 * 12.015,
-         unknown_ug_co2 = graphite_ug_co2 - mass_cont,
-         measmasserr = ifelse(is.na(sig_tot_umols), 
-                              graphite_ug_co2 * .1, sig_tot_umols))
-
 # Do MBC
-cf031020  <- cf031020  %>%
-        mutate(fmMBcor = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                                   .$total_ug_co2, .$mass_cont), 
-                              doMBC),
-               fmMBcorerr = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                                      .$total_ug_co2, .$mass_cont, 
-                                      .$sig_fm_corr, .$fm_cont_err, 
-                                      .$sig_tot_umols, .$mass_cont_err), doMBCerr))
+data_R  <- data %>%
+  mutate(fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                 .$mass, .$mass_cont), 
+                            doMBC),
+         sig_fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                               .$mass, .$mass_cont, 
+                               .$sig_fm_corr, .$fm_cont_err, 
+                               .$sig_mass, .$mass_cont_err), 
+                               doMBCerr))
 ```
 
 ```{r}
@@ -237,7 +170,7 @@ cf031020 %>%
   inner_join(mrdata)
 ```
 
-### Comparison with consensus
+## Comparison with consensus
 
 Here I'm looking at only standards that we have a known value for in the DB.
 
