@@ -6,7 +6,7 @@ library(here)
 library(odbc)
 library(glue)
 
-wheels <- c("CFAMS020620", "CFAMS021120", "CFAMS021320", 
+wheels <- c("CFAMS020620", "CFAMS021120", 
             "CFAMS021820", "CFAMS022620", "CFAMS031020") 
 
 ## Get data
