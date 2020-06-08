@@ -35,9 +35,6 @@ This method was used to analyse test wheels:
 The same normalization method, flagging, and large wheel blank values are used for both runs. I confirmed that norm_ratio, int_err, ext_err, lg_blk_fm, and sig_lg_blk_fm are the same for both analyses. fm_corr and sig_fm_corr are the same for all large samples, but differs for small samples due to the change in method.
 
 ```{r}
-library(amstools)
-library(odbc)
-library(glue)
 library(tidyverse)
 library(here)
 library(readxl)
@@ -65,7 +62,7 @@ lbc_diff <- data %>%
   mutate(fm_diff = snics_results - snics_results_test)
 
 lbc_diff %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-08)) %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
   arrange(-abs(fm_diff))
 ```
 
@@ -91,113 +88,44 @@ data %>%
 
 This section compares the new SNICSer calculations to what should be the same mass balance calculations done outside of SNICSer using R and Excel (provided by Mark). Mark and I have both seen small differences before. The cause of the differences is uncertain, but they are small and do not significantly affect results.
 
-
 ```{r}
-# Do MBC
-data_R  <- data %>%
-  mutate(fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                                 .$mass, .$mass_cont), 
-                            doMBC),
-         sig_fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                               .$mass, .$mass_cont, 
-                               .$sig_fm_corr, .$fm_cont_err, 
-                               .$sig_mass, .$mass_cont_err), 
-                               doMBCerr))
+data %>%
+  filter(table == "snics_results_test") %>%
+  mutate(fm_diff = fm_mb_corr - fm_mb_corr_r) %>%
+  select(wheel, wheel_pos, mass, fm_mb_corr, fm_mb_corr_r, fm_diff) %>%
+  arrange(desc(fm_diff))
 ```
 
-```{r}
-cf031020 %>%
-  select(wheel_pos, fm_corr, sig_fm_corr, fm_mb_corr, sig_fm_mb_corr, fmMBcor, fmMBcorerr)
-```
-
-```{r}
-normDiff <- function(x, y) {
-  mean <- (x + y) / 2
-  (x - mean) / mean
-}
-
-cf031020s <- cf031020 %>%
-  filter(fm_mb_corr > 0.1) %>%
-  mutate(snfm = normDiff(fm_mb_corr, fmMBcor),
-         rfm = normDiff(fmMBcor, fm_mb_corr)) %>%
-  select(wheel_pos, sample_name, total_umols_co2, fm_corr, snfm, rfm)
-```
-
-These samples have the largest differences
-
-```{r}
-cf031020s %>%
-  pivot_longer(c(snfm, rfm), names_to = "method", values_to = "Fm") %>%
-  filter(abs(Fm) > 0.005) %>%
-  ggplot(aes(sample_name, Fm, color = method)) +
-  geom_point() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-```
-
-Fm versus diff in method
-
-```{r}
-cf031020s %>%
-  filter(total_umols_co2 > 15) %>%
-ggplot(aes(fm_corr, snfm)) +
-  geom_point()
-```
-
-Size versus diff in method
-
-```{r}
-ggplot(cf031020s, aes(total_umols_co2, snfm)) +
-  geom_point() +
-  #ylim(-0.001, 0.001) +
-  xlim(0, 50)
-```
 
 #### MR Excel data
 
 ```{r}
-mrdata <- read_excel(here("data/CFAMS03102 MBC Test Results.xlsx"), skip = 3, col_names = FALSE) %>%
-  .[c(3, 25, 26)] %>%
-  rename(tp_num = "...3",
-         mrbcfm = "...25",
-         mrbcfmerr = "...26")
-
-cf031020 %>%
-  filter(wheel == "CFAMS031020") %>%
-  pivot_wider(c(tp_num, wheel_pos), 
-              names_from = table, values_from = fm_mb_corr) %>%
-  mutate(both_NA = is.na(snics_results) & is.na(snics_results_test)) %>%
-  arrange(wheel_pos) %>%
-  inner_join(mrdata)
+data %>%
+  filter(table == "snics_results_test") %>%
+  mutate(fm_diff = fm_mb_corr - fm_mb_corr_mr) %>%
+  select(wheel, wheel_pos, mass, fm_mb_corr, fm_mb_corr_mr, fm_diff) %>%
+  arrange(desc(fm_diff))
 ```
+
 
 ## Comparison with consensus
 
 Here I'm looking at only standards that we have a known value for in the DB.
 
-Compare just small samples with previous and new MBC
 
 ```{r}
-# get consensus values
-cons <- getStdTable() %>%
-  select(rec_num, fm_consensus)
-
-# merge with data by tp. Keep only standards
-consdata <- inner_join(data, cons, by = "rec_num") %>%
-  filter(sample_type != "S") %>%
-  mutate(Fmodern = ifelse(is.na(fm_mb_corr), fm_corr, fm_mb_corr),
-         FmErr = ifelse(is.na(sig_fm_mb_corr), sig_fm_corr, sig_fm_mb_corr),
-         normFm = normFm(Fmodern, fm_consensus),
-         sigma = sigma(Fmodern, fm_consensus, FmErr))
-
-consdata %>%
-  group_by(table) %>%
-  summary()
+data %>%
+  filter(!is.na(normFm)) %>% 
+  pivot_wider(c(wheel, wheel_pos, tp_num, mass, fm_consensus), 
+              names_from = table, values_from = normFm) %>%
+  mutate(norm_fm_diff = snics_results - snics_results_test) %>%
+  arrange(-abs(norm_fm_diff))
 ```
 
 Fm disagreement with consensus blows up at very low Fm and with some samples < 250 umol. 
 
 ```{r}
-consdata %>%
+data %>%
   filter(fm_mb_corr > 0.1, total_umols_co2 < 500) %>%
 ggplot(aes(total_umols_co2, normFm, color = table)) +
   geom_point()
