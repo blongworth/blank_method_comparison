@@ -129,11 +129,11 @@ data %>%
   filter(fm_mb_corr > 0.1, total_umols_co2 < 500) %>%
 ggplot(aes(total_umols_co2, normFm, color = table)) +
   geom_point()
-consdata %>%
+data %>%
   #filter(Fmodern > 0.1) %>%
 ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
-consdata %>%
+data %>%
   filter(fm_mb_corr > 0.1) %>%
 ggplot(aes(fm_consensus, normFm, color = table)) +
   geom_point()
@@ -142,8 +142,9 @@ ggplot(aes(fm_consensus, normFm, color = table)) +
 Compare average agreement with consensus for Fm > 0.1 for new and old methods
 
 ```{r}
-consdata %>%
+data %>%
   filter(fm_mb_corr > 0.1,
+         !is.na(fm_consensus),
          ss == 1) %>%
   group_by(table) %>%
     summarize("Mean normalized Fm" = mean(normFm),
@@ -156,8 +157,9 @@ consdata %>%
 Compare old and new, including large samples that now get MBC.
 
 ```{r}
-consdata %>%
-  filter(Fmodern > 0.1) %>%
+data %>%
+  filter(Fm_reported > 0.1,
+         !is.na(fm_consensus)) %>%
   group_by(table) %>%
     summarize("Mean normalized Fm" = mean(normFm),
               "SD of norm Fm" = sd(normFm),
