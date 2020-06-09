@@ -8,7 +8,7 @@ library(glue)
 
 # skip CFAMS020620, something wierd with fm_corr, even though all params seem right
 
-wheels <- c("CFAMS021120", "CFAMS021820", "CFAMS022620", "CFAMS031020") 
+wheels <- c("CFAMS021120", "CFAMS021820", "CFAMS022620", "CFAMS031020", "CFAMS060420") 
 
 ## Get contents of snics_results and snics_results_test for all test wheels
 
@@ -76,11 +76,20 @@ data <- data %>%
                                doMBCerr))
 
 mrdata <- read_excel(here("data/CFAMS03102 MBC Test Results.xlsx"), skip = 3, col_names = FALSE) %>%
-  .[c(3, 25, 26)] %>%
-  rename(tp_num = "...3",
+  .[c(1, 2, 25, 26)] %>%
+  rename(wheel = "...1",
+         wheel_pos = "...2",
          fm_mb_corr_mr = "...25",
          sig_fm_mb_corr_mr= "...26")
 
+mrdata0604 <- read_excel(here("data/CFAMS060420MRResults.xlsx"), skip = 6, col_names = FALSE) %>%
+  .[c(1, 3, 27, 28)] %>%
+  rename(wheel = "...1",
+         wheel_pos = "...3",
+         fm_mb_corr_mr = "...27",
+         sig_fm_mb_corr_mr= "...28")
+
+mrdata <- rbind(mrdata, mrdata0604)
 data <- data %>% 
   left_join(mrdata)
 
