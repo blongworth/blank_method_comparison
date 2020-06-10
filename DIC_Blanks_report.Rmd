@@ -168,6 +168,28 @@ wstd %>%
 
 ```
 
+Deviation from expected value by date run, TIRI and C-2
+
+```{r}
+wstd %>%
+  filter(!is.na(fm_consensus),
+         outlier == FALSE,
+         norm_ratio > 0.02) %>% 
+  mutate(fm_norm = normFm(norm_ratio, fm_consensus)) %>%
+  filter(fm_norm < 10) %>% 
+  ggplot(aes(ws_strip_date, fm_norm, color = system)) +
+  geom_hline(yintercept = 0) +
+  geom_point()
+```
+
+WS blanks over time. 
+
+```{r}
+wstd %>%
+  filter(norm_ratio < 0.015) %>% 
+  ggplot(aes(ws_strip_date, norm_ratio, color = system)) +
+  geom_point()
+```
 
 # Modeling the correction for varying sample Fm
 
