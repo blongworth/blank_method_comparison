@@ -38,13 +38,19 @@ The same normalization method, flagging, and large wheel blank values are used f
 library(tidyverse)
 library(here)
 library(readxl)
+
+options(digits = 5)
 ```
 
 ## Load data
 
+I removed all normalizing standards and ceylon since they don't get the new MBC.
 
 ```{r}
-data <- read_csv(here("data/SNICSer_blank_compare.csv"))
+data <- read_csv(here("data/SNICSer_blank_compare.csv")) %>% 
+  filter(sample_type != "S",
+         rec_num != 148820) %>%
+  mutate(Name = str_trunc(sample_name, 15, "right"))
 ```
 
 ## Differences between BC methods
@@ -66,22 +72,22 @@ lbc_diff %>%
   arrange(-abs(fm_diff))
 ```
 
-Using large blanks from the wheel rather than stored values leads to discrepancies in fm_corr of up to {r max(lbc_diff$fm_diff)} for small samples.
+Using large blanks from the wheel rather than stored values leads to differences in LBC Fm of up to `r max(lbc_diff$fm_diff)` for small samples.
 
 
 ### MBC Fm differences
 
-The table below shows the differences in reported Fm between methods for all samples. Samples that did not get a MBC (primaries, Ceylon, and samples without MBC parameters) are not included. 
+The table below shows the differences in reported Fm between methods for all samples. Samples that did not get a MBC with the new method (primaries, Ceylon, and samples without MBC parameters) are not included. 
 
 ```{r}
 data %>%
-  mutate(Fmodern = ifelse(is.na(fm_mb_corr) | fm_mb_corr == 0, fm_corr, fm_mb_corr)) %>%
-  pivot_wider(c(wheel, wheel_pos, tp_num, mass), 
-              names_from = table, values_from = Fmodern) %>%
+  pivot_wider(c(wheel, wheel_pos, Name, mass), 
+              names_from = table, values_from = Fm_reported) %>%
   mutate(fm_diff = snics_results - snics_results_test) %>%
   arrange(-abs(fm_diff))
 ```
 
+The largest differences are among small and old samples.
 
 
 ## Validation of calculations 
@@ -89,62 +95,106 @@ data %>%
 This section compares the new SNICSer calculations to what should be the same mass balance calculations done outside of SNICSer using R and Excel (provided by Mark). Mark and I have both seen small differences before. The cause of the differences is uncertain, but they are small and do not significantly affect results.
 
 ```{r}
-data %>%
+r_comp <- data %>%
   filter(table == "snics_results_test") %>%
   mutate(fm_diff = fm_mb_corr - fm_mb_corr_r) %>%
   select(wheel, wheel_pos, mass, fm_mb_corr, fm_mb_corr_r, fm_diff) %>%
   arrange(desc(fm_diff))
 ```
 
+MBC done with R matches the new SNICSer. The largest difference is `r max(r_comp$fm_diff)`.
 
 #### MR Excel data
 
+This section is a placeholder using a comparison Mark did in April. The differences should disappear with updated comparison data.
+
 ```{r}
 data %>%
-  filter(table == "snics_results_test") %>%
+  filter(!is.na(fm_mb_corr_mr),
+         table == "snics_results_test") %>%
   mutate(fm_diff = fm_mb_corr - fm_mb_corr_mr) %>%
   select(wheel, wheel_pos, mass, fm_mb_corr, fm_mb_corr_mr, fm_diff) %>%
-  arrange(desc(fm_diff))
+  arrange(desc(abs(fm_diff)))
 ```
 
 
 ## Comparison with consensus
 
-Here I'm looking at only standards that we have a known value for in the DB.
+Here I'm looking at only samples with a consensus value.
+
+```{r}
+cons_data <- data %>% 
+  filter(!is.na(fm_consensus))
+```
+
+This table shows difference in normalized agreement with consensus for all samples. Normalized Fm is 
+$$ \frac{Fm_{meas} - Fm_{cons}}{Fm_{cons}} $$
 
 
 ```{r}
-data %>%
-  filter(!is.na(normFm)) %>% 
-  pivot_wider(c(wheel, wheel_pos, tp_num, mass, fm_consensus), 
-              names_from = table, values_from = normFm) %>%
+cons_data %>%
+  pivot_wider(c(wheel, wheel_pos, Name, mass, fm_consensus), 
+              names_from = table, values_from = sigma) %>%
   mutate(norm_fm_diff = snics_results - snics_results_test) %>%
   arrange(-abs(norm_fm_diff))
 ```
 
-Fm disagreement with consensus blows up at very low Fm and with some samples < 250 umol. 
+This is the same data, except using sigma to compare. I haven't looked at error yet, but it should be larger with MBC, therefore sigma should be smaller.
 
 ```{r}
-data %>%
-  filter(fm_mb_corr > 0.1, total_umols_co2 < 500) %>%
-ggplot(aes(total_umols_co2, normFm, color = table)) +
-  geom_point()
-data %>%
-  #filter(Fmodern > 0.1) %>%
-ggplot(aes(fm_consensus, normFm, color = table)) +
-  geom_point()
-data %>%
-  filter(fm_mb_corr > 0.1) %>%
-ggplot(aes(fm_consensus, normFm, color = table)) +
-  geom_point()
+cons_data  %>%
+  pivot_wider(c(wheel, wheel_pos, Name, mass, fm_consensus), 
+              names_from = table, values_from = sigma) %>%
+  mutate(sigma_diff = snics_results - snics_results_test) %>%
+  arrange(-abs(sigma_diff))
 ```
 
-Compare average agreement with consensus for Fm > 0.1 for new and old methods
+### Consensus differences at low mass and Fm
+
+Agreement with consensus and difference between methods is larger at low mass. I need to look at more small samples to fill this in.
 
 ```{r}
-data %>%
-  filter(fm_mb_corr > 0.1,
-         !is.na(fm_consensus),
+cons_data %>%
+  filter(fm_mb_corr > 0.1, 
+         total_umols_co2 < 500) %>%
+  ggplot(aes(total_umols_co2, normFm, color = table)) +
+    geom_point()
+```
+
+MBC blows up at very low Fm. This is likely due to the behavior of the correction function near Fm = 0, and is very sensitive to MBC parameters. This should be taken into account when revisiting age limits. 
+
+```{r}
+cons_data %>%
+  ggplot(aes(fm_consensus, normFm, color = table)) +
+    geom_point()
+```
+
+The same plots using sigma instead of normalized Fm show that increased reported error at low Fm and mass account for the variability of these samples.
+```{r}
+cons_data %>%
+  filter(fm_mb_corr > 0.1, 
+         total_umols_co2 < 500) %>%
+  ggplot(aes(total_umols_co2, sigma, color = table)) +
+    geom_point()
+```
+
+MBC blows up at very low Fm. This is likely due to the behavior of the correction function near Fm = 0, and is very sensitive to MBC parameters. This should be taken into account when revisiting age limits. 
+
+```{r}
+cons_data %>%
+  ggplot(aes(fm_consensus, sigma, color = table)) +
+    geom_point()
+```
+
+### Mean agreement with consensus
+
+Compare average agreement with consensus for Fm > 0.02 for new and old methods.
+
+The table below includes only small samples that got MBC with both methods.
+
+```{r}
+cons_data %>%
+  filter(fm_mb_corr > 0.02,
          ss == 1) %>%
   group_by(table) %>%
     summarize("Mean normalized Fm" = mean(normFm),
@@ -154,12 +204,12 @@ data %>%
               N = n())
 ```
 
-Compare old and new, including large samples that now get MBC.
+This table is all known-value samples, including large samples that got only LBC with the old method and now get MBC.
+
 
 ```{r}
-data %>%
-  filter(Fm_reported > 0.1,
-         !is.na(fm_consensus)) %>%
+cons_data %>%
+  filter(Fm_reported > 0.1) %>%
   group_by(table) %>%
     summarize("Mean normalized Fm" = mean(normFm),
               "SD of norm Fm" = sd(normFm),
