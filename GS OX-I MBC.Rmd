@@ -1,0 +1,64 @@
+---
+title: "Bulb gas MBC"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(amstools)
+library(DBI)
+library(here)
+```
+
+```{r}
+data <- read_csv(here("data/SNICSer_blank_compare.csv"))
+                 
+data %>% 
+  filter(table == "snics_results_test", 
+         sample_type == "S") %>% 
+  summarize(across(c(norm_ratio, fm_corr, sig_fm_corr, fm_mb_corr_r, sig_fm_mb_corr_r), mean))
+```
+
+
+```{r}
+con <- conNOSAMS()
+query <- "SELECT wheel, wheel_pos, target.tp_num, rec_num,
+                         ss, sample_name, norm_method, sample_type, total_umols_co2,
+                         sig_tot_umols, mass_cont, mass_cont_err, fm_cont, fm_cont_err,
+                         norm_ratio, fm_corr, sig_fm_corr, lg_blk_fm, sig_lg_blk_fm,
+                         fm_mb_corr, sig_fm_mb_corr 
+                       FROM dc13_test
+                       JOIN target ON dc13_test.tp_num = target.tp_num
+                       JOIN snics_results ON dc13_test.tp_num = snics_results.tp_num
+                      WHERE sample_type = 'S'"
+data <- dbGetQuery(con, query) 
+length(unique(data$wheel))
+data <- data %>%
+  mutate(mass = total_umols_co2 * 12.015,
+         sig_mass = sig_tot_umols * 12.015)
+
+data <- data %>% 
+  mutate(fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                                 .$mass, .$mass_cont), 
+                            doMBC)) %>% 
+
+mutate(sig_fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
+                               .$mass, .$mass_cont, 
+                               .$sig_fm_corr, .$fm_cont_err, 
+                               .$sig_mass, .$mass_cont_err), 
+                               doMBCerr)) %>% 
+  filter(!is.na(fm_mb_corr_r),
+         rec_num != 87012)
+data %>% 
+  summarize(across(c(norm_ratio, fm_corr, sig_fm_corr, fm_mb_corr_r, sig_fm_mb_corr_r), mean), n())
+```
+
+```{r}
+ggplot(data, aes(mass, fm_mb_corr_r - norm_ratio)) +
+  geom_point()
+```
+
