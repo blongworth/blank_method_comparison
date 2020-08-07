@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
 ```{r}
@@ -12,17 +12,10 @@ library(tidyverse)
 library(amstools)
 library(DBI)
 library(here)
+library(gt)
 ```
 
-```{r}
-data <- read_csv(here("data/SNICSer_blank_compare.csv"))
-                 
-data %>% 
-  filter(table == "snics_results_test", 
-         sample_type == "S") %>% 
-  summarize(across(c(norm_ratio, fm_corr, sig_fm_corr, fm_mb_corr_r, sig_fm_mb_corr_r), mean))
-```
-
+Get data for bulb OX-I normalizing standards for all wheels that have new MBC parameters in dc13_test.
 
 ```{r}
 con <- conNOSAMS()
@@ -40,7 +33,11 @@ length(unique(data$wheel))
 data <- data %>%
   mutate(mass = total_umols_co2 * 12.015,
          sig_mass = sig_tot_umols * 12.015)
+```
 
+Apply MBC
+
+```{r}
 data <- data %>% 
   mutate(fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
                                  .$mass, .$mass_cont), 
@@ -53,12 +50,29 @@ mutate(sig_fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont,
                                doMBCerr)) %>% 
   filter(!is.na(fm_mb_corr_r),
          rec_num != 87012)
-data %>% 
-  summarize(across(c(norm_ratio, fm_corr, sig_fm_corr, fm_mb_corr_r, sig_fm_mb_corr_r), mean), n())
 ```
 
+Summarize OX-I data
+
 ```{r}
-ggplot(data, aes(mass, fm_mb_corr_r - norm_ratio)) +
-  geom_point()
+data %>% 
+  filter(norm_ratio > 1.03) %>%  
+  summarize(across(c(norm_ratio, fm_corr, sig_fm_corr, fm_mb_corr_r, sig_fm_mb_corr_r), mean), n()) %>% 
+  rename("Norm Fm" = norm_ratio, "LBC Fm" = fm_corr, "LBC Fm err" = sig_fm_corr, "MBC Fm" = fm_mb_corr_r, "MBC Fm err" = sig_fm_mb_corr_r, "N" = "n()") %>%
+  gt %>% 
+  tab_header(title = "Mean ratio and error for normalized and blank corrected GS OX-I")
+```
+
+Look at ratio vs mass
+
+```{r}
+data %>% 
+  filter(norm_ratio > 1.03) %>%  
+  pivot_longer(cols = c(norm_ratio, fm_mb_corr_r), names_to = "method", values_to = "Fm") %>%  
+ggplot(aes(mass, Fm, color = method)) +
+  geom_hline(yintercept = 1.0398) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_point(shape = 1, size = 2) +
+  labs(title = "MBC Fm of GS OX-I vs mass")
 ```
 

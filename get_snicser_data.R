@@ -5,10 +5,11 @@ library(tidyverse)
 library(here)
 library(odbc)
 library(glue)
+library(readxl)
 
-# skip CFAMS020620, something wierd with fm_corr, even though all params seem right
+# skip CFAMS020620, something weird with fm_corr, even though all params seem right
 
-wheels <- c("CFAMS021120", "CFAMS021820", "CFAMS022620", "CFAMS031020", "CFAMS060420") 
+wheels <- c("CFAMS021120", "CFAMS021820", "CFAMS022620", "CFAMS031020", "CFAMS060420", "USAMS030520") 
 
 ## Get contents of snics_results and snics_results_test for all test wheels
 

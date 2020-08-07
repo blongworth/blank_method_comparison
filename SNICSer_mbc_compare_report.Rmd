@@ -80,15 +80,45 @@ Using large blanks from the wheel rather than stored values leads to differences
 The table below shows the differences in reported Fm between methods for all samples. Samples that did not get a MBC with the new method (primaries, Ceylon, and samples without MBC parameters) are not included. 
 
 ```{r}
-data %>%
+all_diff <- data %>%
   pivot_wider(c(wheel, wheel_pos, Name, mass), 
-              names_from = table, values_from = Fm_reported) %>%
-  mutate(fm_diff = snics_results - snics_results_test) %>%
+              names_from = table, values_from = c(Fm_reported, sig_Fm_reported)) %>%
+  mutate(fm_diff = Fm_reported_snics_results - Fm_reported_snics_results_test,
+         sig_fm_diff = sig_Fm_reported_snics_results - sig_Fm_reported_snics_results_test,
+         Fm = (Fm_reported_snics_results + Fm_reported_snics_results_test) / 2) %>% 
+  filter(!is.na(fm_diff)) %>% 
   arrange(-abs(fm_diff))
+
+all_diff
+
+summarize(all_diff, mean_diff = mean(fm_diff), mean_err_diff = mean(sig_fm_diff))
 ```
 
 The largest differences are among small and old samples.
 
+```{r}
+all_diff %>% 
+  ggplot(aes(fm_diff)) +
+  geom_histogram()
+```
+```{r}
+all_diff %>% 
+  mutate(Fm = (snics_results + snics_results_test) / 2) %>% 
+  ggplot(aes(Fm, fm_diff, color = log(mass))) +
+  geom_point()
+```
+
+
+```{r}
+all_diff %>% 
+  mutate(Fm = (snics_results + snics_results_test) / 2) %>% 
+  ggplot(aes(log(mass, base = 10), fm_diff, color = Fm)) +
+  geom_point()
+```
+```{r}
+all_diff %>% 
+  mutate(z_score = sigma(snics_results_test, snics_results, 
+```
 
 ## Validation of calculations 
 
@@ -209,7 +239,7 @@ This table is all known-value samples, including large samples that got only LBC
 
 ```{r}
 cons_data %>%
-  filter(Fm_reported > 0.1) %>%
+  filter(fm_consensus > 0.1) %>%
   group_by(table) %>%
     summarize("Mean normalized Fm" = mean(normFm),
               "SD of norm Fm" = sd(normFm),

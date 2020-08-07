@@ -42,6 +42,12 @@ data <- read_csv(here("data/SNICSer_blank_compare.csv"))
 unique(whdata$wheel)
 ```
 
+What wheels are in dc13_test?
+
+```{r}
+dbGetQuery(con, "SELECT DISTINCT wheel_id FROM wheel_pos INNER JOIN dc13_test ON dc13_test.tp_num = wheel_pos.tp_num")
+```
+
 ## Find data issues
 
 Just sanity checking to make sure SNICSer's working and that we're looking at the right data.
