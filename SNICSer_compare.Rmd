@@ -28,9 +28,6 @@ Need to check to make sure same norm method is chosen, and that same blanks are 
 Not using CFAMS20120, which was Ulrich's test wheel.
 
 ```{r}
-library(amstools)
-library(odbc)
-library(glue)
 library(tidyverse)
 library(here)
 library(readxl)
@@ -92,13 +89,13 @@ more than 0.000001. Need to remember that small samples get book values
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "lg_blk_fm") %>%
   arrange(wheel, process, wheel_pos) %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-5),
+  filter(!near(snics_results, snics_results_test, tol = 1E-7),
          ss == 0)
 
 # Check that LB errors are the same
 data %>%
   pivot_wider(id_cols = c("wheel", "wheel_pos", "process", "ss"), names_from = "table", values_from = "sig_lg_blk_fm") %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-5),
+  filter(!near(snics_results, snics_results_test, tol = 1E-7),
          ss == 0)
 ```
 
@@ -122,12 +119,14 @@ Everything here should be due to changes in blank cor method, not due to changes
 
 All differences > 1E-5 in fm_corr are due to changing from long term lg_blk_fm to values from the wheel. There's a small difference in in a few other wheels, but nothing greater than 1E-6.
 
+Small differences in CFAMS020620 in large samples that I don't understand.
+
 ```{r}
 data %>%
   pivot_wider(c(wheel, wheel_pos, ss, tp_num), 
               names_from = table, values_from = lg_blk_fm) %>%
   mutate(fm_diff = snics_results - snics_results_test)  %>%
-  filter(!near(snics_results, snics_results_test, tol = 1E-06)) %>%
+  filter(!near(snics_results, snics_results_test, tol = 1E-09)) %>%
   arrange(-abs(fm_diff))
 ```
 

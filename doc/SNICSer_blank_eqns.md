@@ -66,4 +66,16 @@ $$ \sigma_{R_s}^2 = \left[\sigma_{R_m}\frac{m_m}{m_m-m_c}\right]^2 +
 		    \left[\sigma_{m_c}(\frac{R_mm_m - R_cm_c}{(m_m-m_c)^2}-\frac{R_c}{m_m-m_c})\right]^2
 $$ 
 
+# SNICSer with sample mass substitution
 
+Mass balance:
+
+$$ R_s = \frac{R_m m_m - R_c m_c}{m_m - m_c} $$
+
+Error propagation for Roberts et al.:
+
+$$ \sigma_{R_s}^2 = \left[\sigma_{R_m}\frac{m_m}{m_m-m_c}\right]^2 + 
+		    \left[\sigma_{R_c}\frac{m_c}{m_m-mc}\right]^2 +
+		    \left[\sqrt{\sigma_{m_m}^2+\sigma_{m_c}^2} \frac{R_cm_c-R_mm_c}{(m_m-m_c)^2}\right]^2 +
+		    \left[\sigma_{m_c}\frac{R_m-R_c}{m_m-m_c}\right]^2
+$$ 
