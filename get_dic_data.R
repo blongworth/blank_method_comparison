@@ -33,7 +33,7 @@ getWS <- function(recnum) {
   data
 }
 
-wstd <- getWS(c(1082, 17185, 83028, 148045, 148043, 144633, 159579)) %>%
+wstd <- getWS(c(1082, 2138, 17185, 83028, 148045, 148043, 144633, 159579)) %>%
   filter(!is.na(ws_method_num)) %>%
   mutate(process = ifelse(ws_method_num == 410500, "REDICS", "WSL"),
          system = substr(wheel, 1, 5)) %>%

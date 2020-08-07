@@ -53,6 +53,7 @@ wstd <- data %>%
                                  "1081" = "C1", 
                                  "83028" = "C1", 
                                  "1082" = "C2", 
+                                 "2138" = "TIRI-F",
                                  "17185" = "TIRI-I",
                                  "159579" = "GW Blank")),
          fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) %>%
@@ -87,7 +88,7 @@ The table and plots below show data for C-1 and Ft. Caswell groundwater. The dat
 
 ```{r}
 blanks <- wstd %>% 
-	filter(rec_num %in% c(83028, 159579)) 
+	filter(rec_num %in% c(1081, 2138, 83028, 159579)) 
 
 blanks %>%
   group_by(Name, system) %>%
@@ -100,7 +101,7 @@ blanks %>%
   kable
 
 blanks %>% 
-	filter(rec_num %in% c(83028, 159579)) %>%
+	filter(rec_num %in% c(1081, 2138, 83028, 159579)) %>%
   ggplot(aes(norm_ratio, fill = system)) +
     geom_histogram(alpha = .8) +
     scale_color_viridis_d() +
@@ -113,7 +114,7 @@ After removing points > 2% modern....
 
 ```{r}
 wstd %>% 
-	filter(rec_num %in% c(83028, 159579),
+	filter(rec_num %in% c(1081, 2138, 83028, 159579),
 	       outlier == FALSE,
 	       norm_ratio < 0.02) %>%
   ggplot(aes(norm_ratio, fill = system)) +
