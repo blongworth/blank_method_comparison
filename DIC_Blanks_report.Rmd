@@ -1,7 +1,7 @@
 ---
 title: "DIC Blanks"
 author: "Brett Longworth"
-date: "4/21/2020"
+date: "Last compiled on `r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document: default
   word_document: default
@@ -63,8 +63,10 @@ wstd <- data %>%
 # Calculate large blank correction by system
 wstd <- wstd %>%
   group_by(system) %>%
-      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579)]),
-             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579)]),
+      mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579 & 
+                                             outlier == FALSE)]),
+             FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579 &
+                                                    outlier == FALSE)]),
              FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
              FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
                                  pmax(int_err, ext_err), FmBlankErr))
@@ -103,7 +105,7 @@ blanks %>%
 blanks %>% 
 	filter(rec_num %in% c(1081, 2138, 83028, 159579)) %>%
   ggplot(aes(norm_ratio, fill = system)) +
-    geom_histogram(alpha = .8) +
+    geom_histogram(alpha = .5, position = "identity") +
     scale_color_viridis_d() +
     facet_grid(rows = vars(Name), scales = "fixed") +
     labs(title = "Normalized Fm of WS blanks",
@@ -118,7 +120,7 @@ wstd %>%
 	       outlier == FALSE,
 	       norm_ratio < 0.02) %>%
   ggplot(aes(norm_ratio, fill = system)) +
-    geom_histogram(alpha = .8) +
+    geom_histogram(alpha = .5, position = "identity") +
     scale_color_viridis_d() +
     facet_grid(rows = vars(Name), scales = "fixed") +
     labs(title = "Normalized Fm of WS blanks, outliers removed",
