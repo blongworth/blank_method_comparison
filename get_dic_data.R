@@ -3,7 +3,9 @@
 library(amstools)
 library(tidyverse)
 library(here)
-library(blanks)
+#library(blanks)
+
+ws_stds <- c(1081, 1082, 2138, 17185, 17186, 23034, 38809, 83028, 60801, 118204, 148045, 148043, 144633, 159579, 163306)
 
 con <- conNOSAMS()
 standards <- getStdTable()
@@ -16,7 +18,7 @@ getWS <- function(recnum) {
                              ws_method_num, ws_line_num, ws_strip_date,
                              ws_comments, ws_comment_code,
                              norm_ratio, int_err, ext_err, fm_corr, 
-                             sig_fm_corr, dc13, total_umols_co2, sig_tot_umols
+                             sig_fm_corr, lg_blk_fm, sig_lg_blk_fm, dc13, total_umols_co2, sig_tot_umols
                           FROM snics_results
                           JOIN target ON snics_results.tp_num = target.tp_num
                           JOIN graphite ON target.osg_num = graphite.osg_num
@@ -33,7 +35,7 @@ getWS <- function(recnum) {
   data
 }
 
-wstd <- getWS(c(1082, 2138, 17185, 83028, 148045, 148043, 144633, 159579)) %>%
+wstd <- getWS(ws_stds) %>%
   filter(!is.na(ws_method_num)) %>%
   mutate(process = ifelse(ws_method_num == 410500, "REDICS", "WSL"),
          system = substr(wheel, 1, 5)) %>%
