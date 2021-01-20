@@ -20,11 +20,6 @@ significant non-dead blank component. In this document, I define this blank and
 show the effect of using it to correct dissolved secondary standards and model
 the effect on large samples of varying Fm. 
 
-A constant contamination or mass balance correction would be required to fully
-correct for process blank contribution for variable sample sizes. We do not
-have the neccessary data to determine the mass and fraction modern of the blank
-at this point. 
-
 This analysis considers only WSL data. REDICS blank data differ, and we should consider whether a separate LBC for REDICS is necessary.
 
 ```{r}
@@ -33,7 +28,8 @@ library(tidyverse)
 library(here)
 library(knitr)
 library(odbc)
-library(blanks)
+library(tidymodels)
+#library(blanks)
 
 options(digits = 4)
 theme_set(theme_light())
@@ -48,28 +44,32 @@ Blankerr <- function(blankfm) {
 data <- read_csv(here("data/wstd.csv"))
 
 wstd <- data %>%
-  filter(ws_method_num == 410305) %>% # only use WSL data
+  filter(ws_method_num == 410305, # only use WSL data
+         total_umols_co2 * 12.015 > 900) %>% # only large samples 
   mutate(Name = ordered(recode(as.character(rec_num), 
                                  "1081" = "C1", 
                                  "83028" = "C1", 
                                  "1082" = "C2", 
                                  "2138" = "TIRI-F",
                                  "17185" = "TIRI-I",
+                                 "38809" = "NOSAMS2",
                                  "159579" = "GW Blank")),
          fm_consensus = ifelse(rec_num == 159579, 0.00, fm_consensus)) %>%
   group_by(system, rec_num) %>%
-  mutate(outlier = is.na(removeOutliers(norm_ratio))) 
+  mutate(outlier = is.na(removeOutliers(norm_ratio))) %>% 
+  ungroup()
 
 # Calculate large blank correction by system
 wstd <- wstd %>%
   group_by(system) %>%
       mutate(FmBlank = mean(norm_ratio[which(rec_num == 159579 & 
-                                             outlier == FALSE)]),
+                                             outlier == FALSE & norm_ratio < 0.015)]),
              FmBlankErr = Blankerr(norm_ratio[which(rec_num == 159579 &
-                                                    outlier == FALSE)]),
+                                                    outlier == FALSE & norm_ratio < 0.015)]),
              FmLBC = doLBC(norm_ratio, FmBlank, 1.0398),
              FmLBCerr = doLBCerr(norm_ratio, FmBlank, 1.0398,
-                                 pmax(int_err, ext_err), FmBlankErr))
+                                 pmax(int_err, ext_err), FmBlankErr)) %>% 
+  ungroup()
 
 
 # Calculate large blank correction by wheel
@@ -80,13 +80,16 @@ wstd <- wstd %>%
              NblankWh = length(norm_ratio[which(rec_num == 159579 & outlier == FALSE)]),
              FmLBCWh = ifelse(NblankWh > 1, doLBC(norm_ratio, FmBlank, 1.0398), NA), # only calc for wheels with 2 blanks
              FmLBCerrWh = ifelse(NblankWh > 1, doLBCerr(norm_ratio, FmBlank, 1.0398,
-                                 pmax(int_err, ext_err), FmBlankErr), NA))
+                                 pmax(int_err, ext_err), FmBlankErr), NA)) %>% 
+  ungroup()
 ```
 
 
 # Definition of the large blank Fm
 
-The table and plots below show data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. There have been intermittent problems with the dissolution of C-1 which caused high values that are removed in the "no outliers" columns and in the second plot below. These outlier values are not used for LBC.
+The table and plots below show data for C-1 and Ft. Caswell groundwater. The data show that the Fm of these sample types is comparable, meaning that both can be used as a representative process blank for WS. There have been intermittent problems with the dissolution of C-1 which caused high values that are removed in the "no outliers" columns and in the second plot below. Points > 1.5% modern or more than 1.5 * IQR above the 3rd quartile are considered outliers. These outlier values are not used for LBC.
+
+For comparison the mean normalized ratio of the TIRI-F HY blank for the last 6 months was 0.0038 for CFAMS.
 
 ```{r}
 blanks <- wstd %>% 
@@ -96,8 +99,8 @@ blanks %>%
   group_by(Name, system) %>%
   summarize(Fm = mean(norm_ratio),
             "Fm SD" = sd(norm_ratio),
-            "Fm (no outliers)" = mean(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
-            "Fm SD (no outliers)" = sd(norm_ratio[which(outlier == FALSE & norm_ratio < 0.02)]),
+            "Fm (no outliers)" = mean(norm_ratio[which(outlier == FALSE & norm_ratio < 0.015)]),
+            "Fm SD (no outliers)" = sd(norm_ratio[which(outlier == FALSE & norm_ratio < 0.015)]),
             N = n()) %>%
   arrange(Name) %>%
   kable
@@ -112,13 +115,13 @@ blanks %>%
          x = "Normalized Fm (no LBC)")
 ```
 
-After removing points > 2% modern....
+After removing outliers.
 
 ```{r}
 wstd %>% 
 	filter(rec_num %in% c(1081, 2138, 83028, 159579),
 	       outlier == FALSE,
-	       norm_ratio < 0.02) %>%
+	       norm_ratio < 0.015) %>%
   ggplot(aes(norm_ratio, fill = system)) +
     geom_histogram(alpha = .5, position = "identity") +
     scale_color_viridis_d() +
@@ -127,8 +130,6 @@ wstd %>%
          x = "Normalized Fm (no LBC)")
 
 ```
-
-For comparison the mean normalized ratio of the TIRI-F HY blank for the last 6 months was 0.0012 for USAMS and 0.0025 for CFAMS.
 
 
 # Results of the correction for dissolved secondaries
@@ -152,6 +153,7 @@ wstd%>%
   kable()
 ```
 
+The following plot shows data for WS secondaries with no blank correction ("No LBC"), the current HY LBC ("HY LBC"), and the WS LBC as described above ("WS LBC"). Data are broken out by machine and secondary type.
 
 ```{r}
 wstd %>%
@@ -163,8 +165,8 @@ wstd %>%
   ggplot(aes(fct_reorder(Method, Fm, .desc = TRUE), Fm)) +
   geom_hline(aes(yintercept = fm_consensus) ) +
   geom_boxplot() +
-  geom_jitter() +
-  facet_grid(rows = vars(Name), cols = vars(system), scales = "free") +
+  geom_jitter(shape = 1, color = "#0072B2") +
+  facet_grid(rows = vars(fct_reorder(Name, fm_consensus)), cols = vars(system), scales = "free") +
   labs(title = "Distribution of HY and WS corrected Fm for secondary standards and blanks",
        x = "Blank cor method")
   
@@ -240,20 +242,95 @@ wstd %>%
   
 ```
 
-# Mass dependence
+# Questions
 
-The dissolved C-1 blank data may indicate that the WSL has a mass dependent blank. There is not enough data for C-2 or modern seawater standards to show a size relationship for high Fm samples. A dillution experiment with the groundwater blank and a seawater standard may be a relatively easy way to start developing mass dependent blank curves.
+Does running WS blanks and a WS correction make our data better?
 
+If WS blanks accurately reflect the large-sample process blank and this blank does not covary with the HY large blank, the answer is yes.
+
+Does WS blank covary with HY blank?
 
 ```{r}
-wstd %>%
-  filter(!is.na(fm_consensus),
-         outlier == FALSE,
-         rec_num == 83028,
-         norm_ratio < 0.02) %>%
-  ggplot(aes(total_umols_co2, norm_ratio)) + 
-  geom_point()
+data <- wstd %>% 
+  filter(rec_num == 159579,
+         norm_ratio < 0.01,
+         lg_blk_fm < 0.006,
+         total_umols_co2 * 12.015 > 1000) %>% 
+  mutate(sig_norm_ratio = pmax(int_err, ext_err)) %>% 
+  select(norm_ratio, sig_norm_ratio, lg_blk_fm, sig_lg_blk_fm, system)
+
+ggplot(data, aes(norm_ratio, lg_blk_fm, color = system)) +
+  geom_smooth(method = "lm") +
+  geom_errorbar(aes(ymin = lg_blk_fm - sig_lg_blk_fm, ymax = lg_blk_fm + sig_lg_blk_fm)) +
+  geom_errorbarh(aes(xmin = norm_ratio - sig_norm_ratio, xmax = norm_ratio + sig_norm_ratio)) +
+  geom_point() +
+  labs(title = "Groundwater blank Fm vs HY blank Fm",
+       subtitle = "Measured on the same wheel",
+       x = "Fm of groundwater blank",
+       y = "Fm of hydrolysis blank")
 ```
+
+This plot uses the uncorrected Fm (norm_ratio) and the Fm of the large blank used to correct the sample as paired values. Errorbars are measurement error for groundwater blanks and the large blank error for the HY blank, which is the SD of the HY blanks on a wheel.
+
+Linear fit by system
+
+```{r}
+models <- data %>% 
+  split(.$system) %>% 
+  map(~ lm(lg_blk_fm ~ norm_ratio, data = .))
+
+models %>% 
+  map(summary)
+```
+
+The fit parameters confirm what the plot shows: there is a relationship between the ratio of the HY blanks and the groundwater blanks on the same wheel, but it's not particularly strong, and it explains only about 14% of the variability.
+
+Another way to think about this is whether the HY blank is correlated with variability in the water secondaries. Working with CFAMS data only.
+
+```{r}
+data <- wstd %>% 
+  filter(system == "CFAMS",
+         outlier == FALSE) %>% # remove outliers
+  group_by(sample_name) %>% 
+  filter(n() >= 10) %>%  #only sample_names with more than 10 
+  ungroup() %>% 
+  mutate(sig_norm_ratio = pmax(int_err, ext_err)) %>% 
+  select(sample_name, norm_ratio, sig_norm_ratio, lg_blk_fm, sig_lg_blk_fm, system, fm_consensus)
+ggplot(data, aes(lg_blk_fm, norm_ratio)) +
+  geom_smooth(method = "lm") +
+  geom_errorbarh(aes(xmin = lg_blk_fm - sig_lg_blk_fm, xmax = lg_blk_fm + sig_lg_blk_fm)) +
+  geom_errorbar(aes(ymin = norm_ratio - sig_norm_ratio, ymax = norm_ratio + sig_norm_ratio)) +
+  geom_point() +
+  facet_wrap(~ sample_name, scales = "free") +
+  labs(title = "Groundwater blank Fm vs HY blank Fm",
+       subtitle = "Measured on the same wheel",
+       y = "Fm of WS sample",
+       x = "Fm of hydrolysis blank")
+```
+```{r}
+data %>% 
+  nest(data = -sample_name) %>% 
+  mutate(fit = map(data, ~ lm(norm_ratio ~ lg_blk_fm, data = .x)),
+         tidied = map(fit, glance)) %>% 
+  unnest(tidied) %>% 
+  select(sample_name, adj.r.squared, statistic, p.value)
+
+```
+
+Or just a correlation test
+
+```{r}
+data %>% 
+  nest(data = -sample_name) %>% 
+  mutate(test = map(data, ~ cor.test(.x$norm_ratio, .x$lg_blk_fm)),
+         tidied = map(test, tidy)) %>% 
+  unnest(tidied) %>% 
+  select(sample_name, estimate, p.value) 
+```
+
+There's no strong correlation between the HY blank and whether norm_ratios of secondaries are higher or lower. This may not be surprising given the variability of the blank is only a few permil, and variability of secondaries is the same or higher.
+
+Final step is to check whether there's any correlation with variability in groundwater blank. This is harder because there's not always a groundwater blank with every wheel that has WS secondaries.
 
 # Next steps
 
