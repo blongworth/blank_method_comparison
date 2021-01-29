@@ -67,14 +67,12 @@ data <- rbind(data, datat)
 
 # add R and MR calculations
 data <- data %>% 
-  mutate(fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                                 .$mass, .$mass_cont), 
-                            doMBC),
-         sig_fm_mb_corr_r = pmap_dbl(list(.$fm_corr, .$fm_cont, 
-                               .$mass, .$mass_cont, 
-                               .$sig_fm_corr, .$fm_cont_err, 
-                               .$sig_mass, .$mass_cont_err), 
-                               doMBCerr))
+  mutate(fm_mb_corr_r = doMBC(fm_corr, fm_cont, 
+                                 mass, mass_cont), 
+         sig_fm_mb_corr_r = doMBCerr(fm_corr, fm_cont, 
+                               mass, mass_cont, 
+                               sig_fm_corr, fm_cont_err, 
+                               sig_mass, mass_cont_err)) 
 
 mrdata <- read_excel(here("data/CFAMS03102 MBC Test Results.xlsx"), skip = 3, col_names = FALSE) %>%
   .[c(1, 2, 25, 26)] %>%
